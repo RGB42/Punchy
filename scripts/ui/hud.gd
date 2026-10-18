@@ -43,8 +43,8 @@ func _ready() -> void:
 	_combo_word.add_theme_constant_override("outline_size", 10)
 	_combo_word.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_combo_word.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_combo_word.position = Vector2(-300, -24)
-	_combo_word.size = Vector2(260, 40)
+	_combo_word.position = Vector2(-420, -24)
+	_combo_word.size = Vector2(380, 40)
 	add_child(_combo_word)
 	_on_combo(0)
 
@@ -129,7 +129,7 @@ func _toggle_pause() -> void:
 	box.add_theme_constant_override("separation", 14)
 	_pause.add_child(box)
 	box.add_child(_label("PAUSE", 72, Color(1.0, 0.82, 0.3)))
-	for item in [["Weiter", _toggle_pause], ["Level neu starten", _restart],
+	for item in [["Weiter", _toggle_pause], ["Level neu starten", _restart], ["Figur wechseln", _change_hero],
 			["Beenden", tree.quit]]:
 		var b := Button.new()
 		b.text = item[0]
@@ -146,14 +146,19 @@ func _toggle_pause() -> void:
 
 const CONTROLS := """WASD / Stick: Laufen      Maus / rechter Stick: Kamera
 Leertaste / A: Springen, in der Luft Doppelsprung, halten: Gleiten
-Shift / B: Ausweichrolle, in der Luft Feuer-Dash
+Shift / B: Ausweichrolle, in der Luft Dash
 E / Mittelklick / LT: Greifhaken (gelb: heranziehen, blau: schwingen)
 Linksklick / X: Angriff (Kombo)      Rechtsklick / Y: Konter bei gelbem !
-F / RB: Schwerer Angriff, in der Luft Bodenstampfer
-Q / LB: am Boden Flammenstoss (Energie), in der Luft Raketen-Schub
+F / RB: Schwerer Angriff, in der Luft Bodenstampfer, ab 8er-Kombo Finisher
+Q / LB: Elementkraft am Boden (Energie) / Luftkraft in der Luft
 Rotes !! kann man nicht kontern: ausweichen oder springen!"""
 
 var _pause: Control
+
+
+func _change_hero() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://scenes/hero_select.tscn")
 
 
 func _restart() -> void:
@@ -225,6 +230,10 @@ func _on_combo(n: int) -> void:
 
 func _process(_delta: float) -> void:
 	_marker.queue_redraw()
+	var ready := player.combat.finisher_ready()
+	_combo_word.text = "FINISHER BEREIT  [F]" if ready else "TREFFER"
+	var glow := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.015)
+	_combo_word.modulate = Color(1.0, 0.55 + 0.3 * glow, 0.2) if ready else Color.WHITE
 	var b := get_tree().get_first_node_in_group("boss") as Enemy
 	if b and b.state != Enemy.State.IDLE:
 		if _boss == null:
@@ -232,7 +241,7 @@ func _process(_delta: float) -> void:
 			_boss.set_anchors_preset(Control.PRESET_CENTER_TOP)
 			_boss.position = Vector2(-400, 28)
 			_boss.size = Vector2(800, 60)
-			_boss.add_child(_label("DER BLECHKÖNIG", 30, Color(1.0, 0.8, 0.35)))
+			_boss.add_child(_label(Enemy.KINDS[b.kind].get("title", "ENDGEGNER"), 30, Color(1.0, 0.8, 0.35)))
 			_boss_bar = _bar(Color(0.85, 0.15, 0.1), 800, 20)
 			_boss.add_child(_boss_bar)
 			add_child(_boss)
@@ -250,6 +259,12 @@ var _boss_bar: ProgressBar
 func _draw_marker() -> void:
 	var g := player.grapple_target
 	var cam := get_viewport().get_camera_3d()
+	if cam and player.element == "venom" and player._can_rocket and not player.is_on_floor():
+		var hit := player.vine_aim()
+		if not hit.is_empty() and not cam.is_position_behind(hit.position):
+			var at := cam.unproject_position(hit.position)
+			_marker.draw_arc(at, 12.0, 0, TAU, 24, Color(0.5, 1.0, 0.3), 3.0, true)
+			_marker.draw_circle(at, 3.0, Color(0.5, 1.0, 0.3))
 	if g == null or cam == null or cam.is_position_behind(g.global_position):
 		return
 	var at := cam.unproject_position(g.global_position)

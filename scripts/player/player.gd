@@ -13,7 +13,14 @@ signal landed(impact: float)
 
 enum State { GROUND, AIR, GLIDE, DASH, LEDGE, CLIMB_UP, CLIMB, GRAPPLE_PULL, GRAPPLE_SWING, ACTION }
 
-const FIGURE := preload("res://assets/models/figures/blaze.glb")
+const BLINK_DIST := 8.0  # Volt's air power
+const ICE_LIFETIME := 4.0  # Frost's air platform
+const GRIP_TIME := 3.0  # Stone: seconds on any wall
+const UPDRAFT_TIME := 3.0  # Gale: seconds of rising glide
+const UPDRAFT_RISE := 3.5
+const VINE_RANGE := 22.0  # Venom: aim-anywhere grapple
+const PHASE_HEIGHT := 5.0  # Shade: teleport up through anything
+const VINE_HOLD := 2.0  # Venom: seconds the vine holds you on a wall
 
 const WORLD_MASK := 1
 const CLIMB_MASK := 8
@@ -70,6 +77,8 @@ var counter_pressed := false
 var visual: Node3D
 var anim: FigureAnimator
 var combat: PlayerCombat
+var hero: Dictionary
+var element := "blaze"
 var grapple_target: GrapplePoint
 
 var _coyote := 0.0
@@ -104,6 +113,11 @@ var _time := 0.0
 var _safe_pos := Vector3.ZERO
 var _safe_t := 0.0
 var _jet: CPUParticles3D
+var _climb_mask := CLIMB_MASK
+var _gripping := false  # Stone holding a plain wall
+var _grip_t := 0.0
+var _updraft_t := 0.0
+var _vine_normal := Vector3.ZERO  # Venom: surface the vine bit into; ZERO = normal hook
 
 
 func _ready() -> void:
@@ -112,12 +126,14 @@ func _ready() -> void:
 	visual.name = "Visual"
 	visual.position = Vector3(0, 0.95, 0)  # pivot at the hips so flips spin in place
 	add_child(visual)
-	var fig: Node3D = FIGURE.instantiate()
+	hero = Heroes.by_id(Game.hero)
+	element = hero["id"]
+	var fig: Node3D = (load(hero["model"]) as PackedScene).instantiate()
 	fig.position = Vector3(0, -0.95, 0)
 	visual.add_child(fig)
 	anim = FigureAnimator.new(fig)
 	anim.snap_base(Poses.IDLE)
-	_jet = Fx.thruster()
+	_jet = Fx.thruster(element)
 	_jet.position = Vector3(0, 0.03, 0.22)  # between the two back nozzles
 	(anim.joints["chest"] as Node3D).add_child(_jet)
 	_rope = MeshInstance3D.new()
@@ -128,9 +144,9 @@ func _ready() -> void:
 	cyl.radial_segments = 6
 	_rope.mesh = cyl
 	var rm := StandardMaterial3D.new()
-	rm.albedo_color = Color(1.0, 0.55, 0.15)
+	rm.albedo_color = hero["color"]
 	rm.emission_enabled = true
-	rm.emission = Color(1.0, 0.45, 0.1)
+	rm.emission = hero["color"]
 	rm.emission_energy_multiplier = 2.0
 	_rope.material_override = rm
 	_rope.top_level = true
@@ -348,14 +364,14 @@ func _air_abilities() -> bool:
 		return true
 	if power_pressed and _can_rocket:
 		_can_rocket = false
-		velocity.y = sqrt(2.0 * GRAVITY_UP * ROCKET_APEX)
-		_jumping = false
-		_rocket_t = 0.0
-		Game.shake(0.2)
-		Game.sfx("rocket", -2.0)
-		Fx.fire(global_position + Vector3.UP * 0.8, Vector3.DOWN, 30.0, 14.0, 70, 0.8, 0.45)
-		anim.play([{"pose": Poses.ROCKET, "time": 0.06, "ease": 0.4}, {"pose": Poses.ROCKET, "time": 0.3}], 0.25)
-		set_state(State.AIR)
+		match element:
+			"frost": _ice_platform()
+			"volt": _blink()
+			"stone": _rock_grip()
+			"venom": _vine()
+			"gale": _updraft()
+			"shade": _phase_up()
+			_: _rocket()
 		return true
 	if grapple_pressed and grapple_target:
 		_start_grapple()
@@ -363,11 +379,163 @@ func _air_abilities() -> bool:
 	return false
 
 
+## Blaze: a burst of fire from the back thrusters carries you up.
+func _rocket() -> void:
+	velocity.y = sqrt(2.0 * GRAVITY_UP * ROCKET_APEX)
+	_jumping = false
+	_rocket_t = 0.0
+	Game.shake(0.2)
+	Game.sfx("rocket", -2.0)
+	Fx.fire(global_position + Vector3.UP * 0.8, Vector3.DOWN, 30.0, 14.0, 70, 0.8, 0.45, element)
+	anim.play([{"pose": Poses.ROCKET, "time": 0.06, "ease": 0.4}, {"pose": Poses.ROCKET, "time": 0.3}], 0.25)
+	set_state(State.AIR)
+
+
+## Frost: a block of ice forms under your feet and holds for a few seconds.
+func _ice_platform() -> void:
+	var body := StaticBody3D.new()
+	body.collision_layer = 1
+	body.add_to_group("ice_platform")
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(3.2, 0.5, 3.2)
+	shape.shape = box
+	body.add_child(shape)
+	var mesh := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = box.size
+	mesh.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.7, 0.9, 1.0, 0.75)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.roughness = 0.05
+	mat.metallic = 0.2
+	mat.emission_enabled = true
+	mat.emission = Color(0.4, 0.75, 1.0)
+	mat.emission_energy_multiplier = 0.6
+	mesh.material_override = mat
+	body.add_child(mesh)
+	body.position = global_position - Vector3.UP * 0.3
+	get_parent().add_child(body)
+	velocity.y = maxf(velocity.y, 0.0)
+	_jumping = false
+	Game.sfx("freeze", -2.0)
+	Fx.fire(body.global_position, Vector3.UP, 80.0, 6.0, 50, 0.6, 0.5, "frost")
+	var tw := body.create_tween()
+	tw.tween_interval(ICE_LIFETIME - 0.6)
+	tw.tween_property(mat, "albedo_color:a", 0.25, 0.6)
+	tw.tween_callback(func() -> void:
+		Fx.shards(body.global_position, Vector3.UP, Color(0.75, 0.92, 1.0), 12)
+		Game.sfx("shatter", -8.0)
+		body.queue_free())
+
+
+func _on_ice() -> bool:
+	for i in get_slide_collision_count():
+		var col := get_slide_collision(i).get_collider() as Node
+		if col and col.is_in_group("ice_platform"):
+			return true
+	return false
+
+
+## Stone: rock fingers bite into any wall for a few seconds.
+func _rock_grip() -> void:
+	_grip_t = GRIP_TIME
+	Game.sfx("quake", -12.0)
+	if not _try_climb(true, true):
+		_can_rocket = false  # stays armed: the next wall touched in this jump is gripped
+
+
+## Where Venom's vine would bite right now ({} if nothing in range). Aims
+## along the camera, tilted 25 deg up so looking ahead reaches up and forward.
+func vine_aim() -> Dictionary:
+	var dir := facing
+	if camera:
+		var pitch: float = camera.pitch + 0.45
+		dir = (Basis(Vector3.UP, camera.rotation.y) * Basis(Vector3.RIGHT, pitch)) * Vector3.FORWARD
+	var eye := global_position + Vector3.UP * 1.5
+	return _ray(eye, eye + dir.normalized() * VINE_RANGE, WORLD_MASK)
+
+
+## Venom: shoot a vine at whatever you aim at and pull yourself to it.
+func _vine() -> void:
+	var hit := vine_aim()
+	if hit.is_empty():
+		_can_rocket = true  # nothing to bite: try again
+		Game.sfx("swing", -10.0)
+		return
+	_anchor = hit.position + hit.normal * 0.4
+	_vine_normal = hit.normal
+	var flat := Vector3(_anchor.x - global_position.x, 0, _anchor.z - global_position.z)
+	_pull_dir = flat.normalized() if flat.length() > 0.3 else facing
+	_jumping = false
+	set_state(State.GRAPPLE_PULL)
+	_update_rope()
+	Game.sfx("grapple_fire", -4.0)
+	Game.sfx("poison", -10.0)
+
+
+## Gale: a column of wind lifts the glide for a few seconds.
+func _updraft() -> void:
+	_updraft_t = UPDRAFT_TIME
+	_jumping = false
+	velocity.y = maxf(velocity.y, 2.0)
+	set_state(State.GLIDE)
+	Game.sfx("wind", -2.0)
+	Fx.cloud(global_position, "gale", 0.6, 1.5, 14.0)
+
+
+## Shade: melt into shadow and reappear above, through floors and shelves.
+func _phase_up() -> void:
+	var shape := CapsuleShape3D.new()
+	shape.radius = 0.35
+	shape.height = 1.8
+	var q := PhysicsShapeQueryParameters3D.new()
+	q.shape = shape
+	q.collision_mask = WORLD_MASK
+	q.exclude = [get_rid()]
+	var space := get_world_3d().direct_space_state
+	var from := global_position
+	for i in 13:
+		var h := PHASE_HEIGHT - i * 0.25 if i < 9 else PHASE_HEIGHT + (i - 8) * 0.4
+		q.transform = Transform3D(Basis.IDENTITY, from + Vector3.UP * (h + 0.9))
+		if space.intersect_shape(q, 1).is_empty():
+			global_position = from + Vector3.UP * h
+			velocity = Vector3(velocity.x * 0.3, 2.0, velocity.z * 0.3)
+			_jumping = false
+			Game.sfx("shadow")
+			Fx.cloud(from + Vector3.UP, "shade", 0.25, 1.0)
+			Fx.cloud(global_position + Vector3.UP, "shade", 0.25, 1.0)
+			return
+	_can_rocket = true  # no room above
+
+
+## Volt: zap forward, stopping short of anything solid.
+func _blink() -> void:
+	var dir := wish_dir().normalized() if wish_dir().length() > 0.2 else facing
+	var from := global_position + Vector3.UP * 0.9
+	var dist := BLINK_DIST
+	for h: float in [0.3, 0.9, 1.6]:
+		var o: Vector3 = global_position + Vector3.UP * h
+		var hit := _ray(o, o + dir * BLINK_DIST, WORLD_MASK)
+		if not hit.is_empty():
+			dist = minf(dist, (hit.position - o).length() - 0.6)
+	dist = maxf(dist, 0.0)
+	global_position += dir * dist
+	facing = dir
+	velocity = Vector3(dir.x * RUN_SPEED, maxf(velocity.y, 3.0), dir.z * RUN_SPEED)
+	_jumping = false
+	Game.sfx("zap", -2.0)
+	Game.shake(0.15)
+	Fx.lightning(from, global_position + Vector3.UP * 0.9)
+	Fx.sparks(global_position + Vector3.UP, -dir, Color(3.0, 2.8, 0.8), 20, 8.0)
+
+
 func _edge_checks() -> void:
 	if _ignore_ledge <= 0.0 and velocity.y < 6.0 and _try_ledge():
 		return
 	if _ignore_climb <= 0.0:
-		_try_climb()
+		_try_climb(_grip_t > 0.0 and not _gripping)
 
 
 func _double_jump() -> void:
@@ -390,6 +558,10 @@ func _double_jump() -> void:
 
 func _land(impact: float) -> void:
 	_refresh_air_moves()
+	_grip_t = 0.0
+	_updraft_t = 0.0
+	if _on_ice():
+		_can_rocket = false  # no ice staircases: Frost's platform recharges on solid ground only
 	_jumping = false
 	set_state(State.GROUND)
 	velocity.y = 0.0
@@ -409,14 +581,18 @@ func _land(impact: float) -> void:
 func _tick_glide(delta: float) -> void:
 	if _combat_input():
 		return
-	velocity.y = move_toward(velocity.y, -GLIDE_FALL, (GRAVITY_DOWN if velocity.y > -GLIDE_FALL else 70.0) * delta)
+	if _updraft_t > 0.0:  # Gale's updraft: the glide climbs, no button needed
+		_updraft_t -= delta
+		velocity.y = move_toward(velocity.y, UPDRAFT_RISE, 40.0 * delta)
+	else:
+		velocity.y = move_toward(velocity.y, -GLIDE_FALL, (GRAVITY_DOWN if velocity.y > -GLIDE_FALL else 70.0) * delta)
 	var wish := wish_dir()
 	var h := Vector3(velocity.x, 0, velocity.z)
 	var target := wish * GLIDE_SPEED if wish.length() > 0.1 else facing * GLIDE_SPEED * 0.55
 	h = h.move_toward(target, 18.0 * delta)
 	velocity.x = h.x
 	velocity.z = h.z
-	if not jump_held:
+	if _updraft_t <= 0.0 and not jump_held:
 		set_state(State.AIR)
 		return
 	if _air_abilities():
@@ -444,7 +620,7 @@ func _start_dash(ground: bool) -> void:
 		_jumping = false
 		Game.shake(0.12)
 		Game.sfx("dash", -3.0)
-		Fx.fire(global_position + Vector3.UP * 1.3 - _dash_dir * 0.5, -_dash_dir, 25.0, 10.0, 40, 0.6, 0.35)
+		Fx.fire(global_position + Vector3.UP * 1.3 - _dash_dir * 0.5, -_dash_dir, 25.0, 10.0, 40, 0.6, 0.35, element)
 		anim.play([{"pose": Poses.DASH, "time": 0.05, "ease": 0.4}, {"pose": Poses.DASH, "time": DASH_TIME}], 0.2)
 
 
@@ -593,23 +769,33 @@ func _tick_climb_up() -> void:
 
 # ------------------------------------------------------------------ climbing
 
-func _try_climb() -> bool:
+## Climb a climbable surface in front. any_wall (Stone's rock grip) also takes
+## plain walls, but only for GRIP_TIME and without recharging the grip.
+func _try_climb(any_wall := false, use_facing := false) -> bool:
 	var wish := wish_dir()
-	if wish.length() < 0.3:
+	if wish.length() < 0.3 and not use_facing:
 		return false
-	var fwd := wish.normalized()
-	var hit := _ray(global_position + Vector3.UP * 1.0, global_position + Vector3.UP * 1.0 + fwd * 0.8, CLIMB_MASK)
+	var fwd := wish.normalized() if wish.length() >= 0.3 else facing
+	var mask := CLIMB_MASK | (WORLD_MASK if any_wall else 0)
+	var hit := _ray(global_position + Vector3.UP * 1.0, global_position + Vector3.UP * 1.0 + fwd * (1.4 if use_facing else 0.8), mask)
 	if hit.is_empty() or absf(hit.normal.y) > 0.4:
 		return false
 	var n := Vector3(hit.normal.x, 0, hit.normal.z).normalized()
 	if fwd.dot(-n) < 0.5:
 		return false
+	var climbable := ((hit.collider as CollisionObject3D).collision_layer & CLIMB_MASK) != 0
 	_wall_normal = n
 	var p: Vector3 = hit.position + n * 0.38
 	global_position = Vector3(p.x, global_position.y, p.z)
 	velocity = Vector3.ZERO
 	facing = -n
 	_refresh_air_moves()
+	_gripping = not climbable
+	_climb_mask = mask if _gripping else CLIMB_MASK
+	if _gripping:
+		_can_rocket = false  # one grip per jump: no endless wall climbing
+		Game.sfx("land_hard", -8.0)
+		Fx.shards(global_position + Vector3.UP * 1.0 - n * 0.4, n, Color(0.45, 0.38, 0.3), 8)
 	_jump_buffer = 0.0
 	set_state(State.CLIMB)
 	return true
@@ -622,6 +808,14 @@ func _tick_climb(delta: float) -> void:
 	velocity = v * CLIMB_SPEED - n * 1.5
 	_climb_phase += v.length() * CLIMB_SPEED * delta * 2.2
 	move_and_slide()
+	if _gripping:
+		_grip_t -= delta
+		if _grip_t <= 0.0:  # the rock fingers give out
+			_gripping = false
+			_ignore_climb = 0.5
+			Fx.shards(global_position + Vector3.UP * 1.2 - n * 0.4, n, Color(0.45, 0.38, 0.3), 10)
+			set_state(State.AIR)
+			return
 	if _state_t > 0.1 and dodge_pressed:
 		_ignore_climb = 0.4
 		set_state(State.AIR)
@@ -633,7 +827,7 @@ func _tick_climb(delta: float) -> void:
 		facing = n
 		_ignore_climb = 0.35
 		return
-	var head := _ray(global_position + Vector3.UP * 1.9, global_position + Vector3.UP * 1.9 - n * 0.9, CLIMB_MASK)
+	var head := _ray(global_position + Vector3.UP * 1.9, global_position + Vector3.UP * 1.9 - n * 0.9, _climb_mask)
 	if head.is_empty():
 		var info := probe_ledge(global_position, -n)
 		if not info.is_empty() and move_input.y > 0.2:
@@ -641,7 +835,7 @@ func _tick_climb(delta: float) -> void:
 			_ledge_point = info["point"]
 			_start_climb_up()
 			return
-	var body := _ray(global_position + Vector3.UP * 0.9, global_position + Vector3.UP * 0.9 - n * 0.9, CLIMB_MASK)
+	var body := _ray(global_position + Vector3.UP * 0.9, global_position + Vector3.UP * 0.9 - n * 0.9, _climb_mask)
 	if body.is_empty() and head.is_empty():
 		set_state(State.AIR)
 		return
@@ -668,6 +862,11 @@ func _update_grapple_target() -> void:
 			if d > GRAPPLE_RANGE or d < 1.5:
 				continue
 			var align := look.dot(to / d)
+			# A hook high overhead is hard to look at; roughly facing its way is enough.
+			var flat := Vector2(to.x, to.z)
+			var look_flat := Vector2(look.x, look.z).normalized()
+			if to.y > 3.0 and (flat.length() < 1.0 or look_flat.dot(flat.normalized()) > 0.2):
+				align = maxf(align, 0.6)
 			if align < 0.45:
 				continue
 			if not _ray(eye, g.global_position - to / d * 0.6, WORLD_MASK).is_empty():
@@ -691,9 +890,11 @@ func _start_grapple() -> void:
 	Game.shake(0.08)
 	Game.sfx("grapple_fire", -4.0)
 	Game.sfx("grapple_hit", -8.0)
+	_vine_normal = Vector3.ZERO
 	if grapple_target.mode == GrapplePoint.Mode.PULL:
 		var flat := Vector3(_anchor.x - global_position.x, 0, _anchor.z - global_position.z)
-		_pull_dir = flat.normalized() if flat.length() > 0.3 else facing
+		# a hook nearly overhead says nothing about where to go: fling the way you face
+		_pull_dir = flat.normalized() if flat.length() > 2.5 else facing
 		set_state(State.GRAPPLE_PULL)
 	else:
 		_rope_len = clampf((_anchor - (global_position + Vector3.UP * 2.0)).length(), 4.0, GRAPPLE_RANGE)
@@ -707,6 +908,14 @@ func _tick_pull() -> void:
 	var to := _anchor + Vector3.UP * 1.0 - (global_position + Vector3.UP * 1.0)
 	var stuck := _state_t > 0.25 and get_real_velocity().length() < 2.0
 	if to.length() < 0.8 or _state_t > 2.0 or stuck:
+		if absf(_vine_normal.y) < 0.4 and _vine_normal != Vector3.ZERO:
+			# the vine hit a wall: hang on it for a moment instead of bouncing off
+			facing = -Vector3(_vine_normal.x, 0, _vine_normal.z).normalized()
+			_vine_normal = Vector3.ZERO
+			_grip_t = VINE_HOLD
+			if _try_climb(true, true):
+				return
+		_vine_normal = Vector3.ZERO
 		velocity = _pull_dir * 9.0
 		_jump(1.6)
 		Game.shake(0.12)

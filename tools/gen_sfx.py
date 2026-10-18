@@ -203,6 +203,28 @@ def make():
     t = t_of(d)
     chime = sum(at(np.sin(2 * np.pi * f * t_of(0.5)) * expdecay(t_of(0.5), 0.15), o, d) for f, o in ((1319, 0.0), (1568, 0.07), (2093, 0.14), (2637, 0.21)))
     save("star", chime)
+    d = 0.8
+    t = t_of(d)
+    shimmer = sum(np.sin(2 * np.pi * f * t) * expdecay(t, 0.25) for f in (2637, 3520, 4186)) * 0.25
+    hiss = highpass(noise(len(t)), 4000) * expdecay(t, 0.2) * 0.6
+    save("freeze", rattle(d, 26, 3000, 7500, 0.6) * 0.9 + shimmer + hiss + crack(d, 5000, 3, 0.01))
+    d = 0.45
+    t = t_of(d)
+    saw = ((t * 120) % 1.0) * 2 - 1
+    buzz = (saw * 0.6 + noise(len(t)) * 0.5) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 37 * t))) * expdecay(t, 0.15)
+    save("zap", softclip(buzz + crack(d, 3500, 2, 0.01) * 1.5 + crack(d, 900, 2, 0.03), 2.0))
+    d = 1.3
+    save("quake", softclip(boom(d, 60, 22, 0.45) * 1.6 + rattle(d, 40, 400, 2200, 0.8) * 0.5 + lowpass(noise(int(SR * d)), 300) * env(t_of(d), 0.02, 1.5) * 2.0, 2.5))
+    d = 1.0
+    t = t_of(d)
+    bubbles = sum(at(np.sin(2 * np.pi * np.linspace(f, f * 1.8, int(SR * 0.06)) * t_of(0.06)) * np.exp(-t_of(0.06) / 0.02), o, d)
+                  for f, o in zip(rng.uniform(300, 900, 18), rng.uniform(0, 0.85, 18)))
+    save("poison", bubbles * 0.7 + highpass(noise(len(t)), 2500) * env(t, 0.05, 1.2) * 0.35)
+    d = 1.2
+    save("wind", whoosh(d, 200, 1400, 0.5) * 1.2 + whoosh(d, 400, 2200, 0.7) * 0.6)
+    d = 0.5
+    t = t_of(d)
+    save("shadow", whoosh(d, 2200, 300, 0.2) * 0.9 + sweep(500, 90, t, 0.6) * expdecay(t, 0.15) * 0.6)
     d = 0.3
     save("shot", softclip(crack(d, 1700, 2.5, 0.012) * 1.4 + boom(d, 240, 90, 0.025) * 0.7 + whoosh(d, 1500, 3500, 0.2) * 0.3, 1.8))
     d = 0.6

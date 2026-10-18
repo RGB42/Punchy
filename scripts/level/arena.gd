@@ -10,6 +10,8 @@ signal started
 signal cleared
 
 const DROP_HEIGHT := 7.0
+## Barriers stop figures but not the camera (its spring arm only hits layer 1).
+const BARRIER_LAYER := 32
 const BARRIER_HEIGHT := 6.0
 
 var size := Vector3(14, 6, 14)
@@ -56,11 +58,16 @@ func _make_block(xf: Transform3D) -> StaticBody3D:
 	mesh.mesh = bm
 	mesh.position = shape.position
 	var mat := StandardMaterial3D.new()
-	mat.albedo_color = barrier_color
+	mat.albedo_color = Color(barrier_color, 0.14)  # see-through: the camera may sit outside
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
 	mat.roughness = 0.3
 	mat.emission_enabled = true
 	mat.emission = barrier_color
-	mat.emission_energy_multiplier = 0.25
+	mat.emission_energy_multiplier = 0.35
+	mat.rim_enabled = true  # bright edges read as a force field
+	mat.rim = 1.0
+	mat.rim_tint = 0.2
 	mesh.material_override = mat
 	body.add_child(mesh)
 	body.transform = Transform3D(xf.basis.orthonormalized(), xf.origin - Vector3.UP * (sz.y + 0.5))
@@ -79,11 +86,12 @@ func _on_body_entered(body: Node3D) -> void:
 func start() -> void:
 	active = true
 	wave = -1
+	Game.set_combat(true)
 	Game.sfx("barrier")
 	Game.shake(0.25)
 	for b in _blocks:
 		b.visible = true
-		b.collision_layer = 1
+		b.collision_layer = BARRIER_LAYER
 		b.create_tween().tween_property(b, "position", b.get_meta("up"), 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	var p := get_tree().get_first_node_in_group("player") as Player
 	if p and not p.combat.died.is_connected(_on_player_died):
@@ -106,13 +114,13 @@ func _next_wave() -> void:
 	var shielded: int = w.get("shielded", 0)
 	_alive = count
 	for i in count:
-		var e := Enemy.new()
+		var e: Enemy = Dragon.new() if kinds[i] == "dragon" else Enemy.new()
 		e.kind = kinds[i]
 		e.shielded = i < shielded
 		e.max_health = w.get("health", 0.0)
 		var a := TAU * (i + 0.5) / count + randf_range(-0.3, 0.3)
 		var r := minf(size.x, size.z) * 0.33
-		e.position = Vector3.UP * DROP_HEIGHT if e.kind == "king" else Vector3(cos(a) * r, DROP_HEIGHT, sin(a) * r)
+		e.position = Vector3.UP * DROP_HEIGHT if e.boss_kind() else Vector3(cos(a) * r, DROP_HEIGHT, sin(a) * r)
 		add_child(e)
 		e.activate()
 		e.died.connect(_on_enemy_died)
@@ -128,6 +136,7 @@ func _on_enemy_died(_e: Enemy) -> void:
 func _finish() -> void:
 	active = false
 	done = true
+	Game.set_combat(false)
 	_lower()
 	cleared.emit()
 
@@ -145,6 +154,7 @@ func _on_player_died() -> void:
 	if not active:
 		return
 	active = false
+	Game.set_combat(false)
 	for e in _spawned:
 		if is_instance_valid(e):
 			e.queue_free()

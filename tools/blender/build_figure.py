@@ -28,6 +28,22 @@ PALETTES = {
               "joint": (0.2, 0.18, 0.18), "glow": (1.0, 0.85, 0.2), "metal": (0.9, 0.7, 0.3)},
     "knight": {"primary": (0.55, 0.58, 0.62), "secondary": (0.25, 0.2, 0.35), "accent": (0.75, 0.6, 0.2),
                "joint": (0.15, 0.15, 0.17), "glow": (0.9, 0.2, 0.15), "metal": (0.75, 0.77, 0.8)},
+    "frost": {"primary": (0.86, 0.93, 1.0), "secondary": (0.07, 0.14, 0.34), "accent": (0.35, 0.78, 1.0),
+              "joint": (0.14, 0.17, 0.24), "glow": (0.6, 0.95, 1.0), "metal": (0.8, 0.86, 0.92)},
+    "volt": {"primary": (0.07, 0.07, 0.08), "secondary": (0.2, 0.2, 0.22), "accent": (1.0, 0.83, 0.05),
+             "joint": (0.12, 0.12, 0.13), "glow": (1.0, 0.95, 0.35), "metal": (0.62, 0.62, 0.65)},
+    "stone": {"primary": (0.55, 0.36, 0.2), "secondary": (0.2, 0.17, 0.15), "accent": (0.36, 0.32, 0.29),
+              "joint": (0.18, 0.16, 0.15), "glow": (1.0, 0.55, 0.15), "metal": (0.45, 0.43, 0.42)},
+    "venom": {"primary": (0.2, 0.6, 0.14), "secondary": (0.3, 0.1, 0.36), "accent": (0.62, 0.95, 0.2),
+              "joint": (0.16, 0.06, 0.2), "glow": (0.75, 1.0, 0.2), "metal": (0.5, 0.3, 0.6)},
+    "gale": {"primary": (0.88, 0.96, 0.92), "secondary": (0.15, 0.45, 0.42), "accent": (0.45, 0.92, 0.78),
+             "joint": (0.14, 0.3, 0.3), "glow": (0.8, 1.0, 0.95), "metal": (0.75, 0.85, 0.82)},
+    "shade": {"primary": (0.2, 0.1, 0.28), "secondary": (0.05, 0.04, 0.07), "accent": (0.6, 0.3, 0.9),
+              "joint": (0.08, 0.06, 0.1), "glow": (0.85, 0.45, 1.0), "metal": (0.35, 0.3, 0.42)},
+    "robot": {"primary": (0.72, 0.74, 0.78), "secondary": (0.15, 0.25, 0.62), "accent": (0.88, 0.18, 0.1),
+              "joint": (0.25, 0.25, 0.28), "glow": (1.0, 0.85, 0.3), "metal": (0.85, 0.65, 0.25)},
+    "dino": {"primary": (0.25, 0.62, 0.2), "secondary": (0.78, 0.82, 0.35), "accent": (0.95, 0.5, 0.1),
+             "joint": (0.2, 0.45, 0.15), "glow": (1.0, 0.9, 0.2), "metal": (0.95, 0.95, 0.9)},
     "king": {"primary": (0.22, 0.22, 0.27), "secondary": (0.45, 0.07, 0.1), "accent": (0.92, 0.7, 0.18),
              "joint": (0.08, 0.08, 0.1), "glow": (1.0, 0.4, 0.1), "metal": (0.55, 0.56, 0.6)},
     "doll": {"primary": (0.95, 0.5, 0.68), "secondary": (0.96, 0.94, 0.92), "accent": (0.98, 0.8, 0.35),
@@ -54,11 +70,14 @@ for _s, _x in (("l", -1), ("r", 1)):
         ("foot_" + _s, "shin_" + _s, (0.115 * _x, 0.1, 0)),
     ]
 
+HEROES = ("blaze", "frost", "volt", "stone", "venom", "gale", "shade")
+
 # Props that ride on a joint: (name, parent part, pivot). Godot can hide them.
 EXTRAS = {
     "knight": [("sword", "hand_r", (0.25, 0.88, 0)), ("shield", "lower_arm_l", (-0.25, 1.06, 0))],
     "king": [("sword", "hand_r", (0.25, 0.88, 0)), ("shield", "lower_arm_l", (-0.25, 1.06, 0))],
     "soldier": [("rifle", "hand_r", (0.25, 0.88, 0))],
+    "robot": [("key", "chest", (0, 1.4, 0.2))],
 }
 
 
@@ -164,7 +183,7 @@ class Builder:
 
 def build_body(b, variant):
     """The shared heroic body. Variants dress it in different armour."""
-    hero = variant == "blaze"
+    hero = variant in HEROES
     b.part = "hips"
     b.box((0, 0.99, 0), (0.3, 0.17, 0.2), "secondary", 0.04, taper=(0.75, 0.9))
     b.box((0, 1.065, 0), (0.33, 0.06, 0.22), "metal", 0.015)
@@ -194,11 +213,40 @@ def build_body(b, variant):
         b.box((0, 1.67, 0.0), (0.21, 0.24, 0.23), "primary", 0.09, taper=(0.85, 1.0))
         b.box((0, 1.67, -0.105), (0.17, 0.045, 0.04), "glow", 0.015, taper=(0.8, 1.0))
         b.box((0, 1.6, -0.08), (0.12, 0.075, 0.08), "joint", 0.03, taper=(0.75, 1.0))
-        # flame crest: three fins sweeping back
-        for z, h, tilt in ((-0.06, 0.13, -35), (0.01, 0.16, -15), (0.08, 0.11, 10)):
-            b.box((0, 1.75 + h * 0.25, z), (0.03, h, 0.07), "accent", 0.012, rot=(tilt, 0, 0), taper=(1.6, 1.4))
-        for sx in (-1, 1):
-            b.box((0.11 * sx, 1.71, 0.03), (0.02, 0.06, 0.13), "accent", 0.008, rot=(-25, 0, 0))
+        if variant == "blaze":  # flame crest: three fins sweeping back
+            for z, h, tilt in ((-0.06, 0.13, -35), (0.01, 0.16, -15), (0.08, 0.11, 10)):
+                b.box((0, 1.75 + h * 0.25, z), (0.03, h, 0.07), "accent", 0.012, rot=(tilt, 0, 0), taper=(1.6, 1.4))
+            for sx in (-1, 1):
+                b.box((0.11 * sx, 1.71, 0.03), (0.02, 0.06, 0.13), "accent", 0.008, rot=(-25, 0, 0))
+        elif variant == "frost":  # ice crown: crystal spikes fanning up and back
+            for x, h, tilt, roll in ((0, 0.15, -10, 0), (-0.06, 0.11, -5, 25), (0.06, 0.11, -5, -25),
+                                     (-0.09, 0.08, 10, 45), (0.09, 0.08, 10, -45), (0, 0.1, 30, 0)):
+                b.box((x, 1.76 + h * 0.3, 0.01), (0.035, h, 0.035), "accent", 0.008, rot=(tilt, 0, roll), taper=(0.15, 0.15))
+        elif variant == "volt":  # lightning fins on both temples and a centre antenna
+            for sx in (-1, 1):
+                b.box((0.11 * sx, 1.74, 0.0), (0.02, 0.08, 0.05), "accent", 0.006, rot=(-30, 0, 20 * sx))
+                b.box((0.13 * sx, 1.79, 0.03), (0.02, 0.07, 0.045), "accent", 0.006, rot=(30, 0, 25 * sx))
+                b.box((0.15 * sx, 1.84, 0.0), (0.02, 0.06, 0.04), "accent", 0.006, rot=(-30, 0, 30 * sx), taper=(0.3, 0.3))
+            b.limb((0, 1.78, 0.02), (0, 1.87, 0.04), 0.012, 0.006, "metal", 0.003)
+            b.ball((0, 1.875, 0.04), 0.018, "glow")
+        elif variant == "stone":  # boulder crown: chunky rocks piled on the helmet
+            for x, y, z, s, r in ((0, 1.8, 0.0, 0.1, 20), (-0.08, 1.78, 0.05, 0.08, -35), (0.085, 1.785, 0.04, 0.075, 50),
+                                  (0.0, 1.775, 0.1, 0.075, 10), (-0.1, 1.74, -0.03, 0.06, 70), (0.1, 1.74, -0.04, 0.055, -60)):
+                b.box((x, y, z), (s, s * 0.85, s), "accent", s * 0.3, rot=(r, r * 0.7, r * 0.4))
+        elif variant == "venom":  # two curved horn-fangs and a spined crest
+            for sx in (-1, 1):
+                b.box((0.07 * sx, 1.79, -0.02), (0.025, 0.09, 0.03), "accent", 0.008, rot=(-30, 0, -25 * sx), taper=(0.2, 0.2))
+                b.box((0.09 * sx, 1.835, -0.06), (0.02, 0.06, 0.02), "accent", 0.006, rot=(-60, 0, -35 * sx), taper=(0.2, 0.2))
+            for z, h in ((0.0, 0.06), (0.05, 0.05), (0.1, 0.04)):
+                b.box((0, 1.785 + h * 0.3, z), (0.015, h, 0.03), "secondary", 0.005, rot=(25, 0, 0), taper=(0.2, 1.0))
+        elif variant == "gale":  # swept wings on both sides of the helmet
+            for sx in (-1, 1):
+                for k, (y, length) in enumerate(((1.72, 0.17), (1.68, 0.13), (1.64, 0.09))):
+                    b.box((0.12 * sx, y + 0.02, 0.06 + 0.02 * k), (0.015, 0.035, length), "accent", 0.008, rot=(20 - 10 * k, 15 * sx, 0))
+        elif variant == "shade":  # cowl with pointed ears
+            b.box((0, 1.66, 0.05), (0.23, 0.27, 0.17), "secondary", 0.08, taper=(0.9, 1.0))
+            for sx in (-1, 1):
+                b.box((0.07 * sx, 1.81, 0.0), (0.035, 0.09, 0.035), "secondary", 0.006, taper=(0.15, 0.15))
     else:
         b.box((0, 1.67, 0.0), (0.21, 0.24, 0.23), "primary", 0.07)
         b.box((0, 1.67, -0.112), (0.15, 0.022, 0.02), "glow", 0.006)
@@ -355,6 +403,95 @@ def build_soldier(b):
     b.limb((0.25, 0.9, -0.1), (0.25, 0.9, -0.62), 0.016, 0.014, "metal", 0.004, sides=10)
     b.limb((0.25, 0.9, -0.62), (0.25, 0.9, -0.78), 0.008, 0.002, "white", 0.002, sides=8)
 
+def build_robot(b):
+    """A tin wind-up robot: box body with rivets, square head with an antenna,
+    claw hands, a brass key in its back (Godot spins it)."""
+    b.part = "hips"
+    b.box((0, 0.98, 0), (0.36, 0.22, 0.26), "secondary", 0.03)
+    b.part = "abdomen"
+    b.limb((0, 1.08, 0), (0, 1.24, 0), 0.13, 0.13, "joint", 0.01)
+    for y in (1.12, 1.18):
+        b.limb((0, y, 0), (0, y + 0.02, 0), 0.145, 0.145, "metal", 0.005)
+    b.part = "chest"
+    b.box((0, 1.4, 0), (0.56, 0.36, 0.34), "primary", 0.03)
+    b.box((0, 1.41, -0.175), (0.36, 0.22, 0.02), "secondary", 0.01)
+    for x in (-0.1, 0.0, 0.1):
+        b.ball((x, 1.43, -0.19), 0.025, "glow" if x == 0 else "accent")
+    for sx in (-1, 1):
+        for y in (1.26, 1.54):
+            b.ball((0.26 * sx, y, -0.17), 0.015, "metal")
+    b.limb((0, 1.58, 0), (0, 1.6, 0), 0.06, 0.06, "joint")
+    b.part = "head"
+    b.box((0, 1.71, 0), (0.28, 0.22, 0.26), "primary", 0.025)
+    for sx in (-1, 1):
+        b.limb((0.07 * sx, 1.73, -0.13), (0.07 * sx, 1.73, -0.15), 0.04, 0.04, "glow", 0.005)
+        b.limb((0.15 * sx, 1.71, 0), (0.17 * sx, 1.71, 0), 0.05, 0.05, "accent", 0.005)
+    b.box((0, 1.64, -0.132), (0.14, 0.03, 0.01), "joint", 0.003)
+    b.limb((0, 1.82, 0), (0, 1.9, 0), 0.008, 0.008, "metal", 0.002)
+    b.ball((0, 1.9, 0), 0.025, "accent")
+    for s, sx in (("l", -1), ("r", 1)):
+        b.part = "upper_arm_" + s
+        b.ball((0.31 * sx, 1.48, 0), 0.07, "joint")
+        b.limb((0.31 * sx, 1.46, 0), (0.31 * sx, 1.2, 0), 0.05, 0.05, "metal", 0.005)
+        b.part = "lower_arm_" + s
+        b.limb((0.31 * sx, 1.18, 0), (0.31 * sx, 0.98, 0), 0.06, 0.06, "primary", 0.005)
+        b.part = "hand_" + s
+        for dz in (-0.04, 0.04):
+            b.box((0.31 * sx, 0.9, dz), (0.03, 0.12, 0.03), "secondary", 0.008)
+        b.part = "thigh_" + s
+        b.limb((0.12 * sx, 0.9, 0), (0.12 * sx, 0.56, 0), 0.07, 0.07, "joint", 0.005)
+        b.part = "shin_" + s
+        b.limb((0.12 * sx, 0.54, 0), (0.12 * sx, 0.12, 0), 0.085, 0.085, "primary", 0.01)
+        b.part = "foot_" + s
+        b.box((0.12 * sx, 0.05, -0.03), (0.16, 0.1, 0.26), "secondary", 0.02)
+    b.part = "key"
+    b.limb((0, 1.4, 0.17), (0, 1.4, 0.3), 0.02, 0.02, "metal", 0.003)
+    for sx in (-1, 1):
+        b.box((0.07 * sx, 1.4, 0.32), (0.12, 0.1, 0.02), "metal", 0.01)
+
+
+def build_dino(b):
+    """A plastic T-rex on the shared rig: big head, tiny arms, thick legs, tail on
+    the hips. Godot leans the body forward with dino poses."""
+    b.part = "hips"
+    b.ball((0, 0.98, 0.02), 0.2, "primary", (1.0, 0.9, 1.1))
+    b.limb((0, 0.98, 0.12), (0, 0.9, 0.85), 0.16, 0.03, "primary", 0.02)  # tail, straight back
+    for z in (0.25, 0.45, 0.65):
+        b.box((0, 1.1 - (z - 0.25) * 0.15, z), (0.03, 0.06, 0.06), "accent", 0.01, rot=(45, 0, 0))
+    b.part = "abdomen"
+    b.ball((0, 1.16, 0), 0.18, "primary", (1.0, 1.0, 1.0))
+    b.ball((0, 1.15, -0.1), 0.13, "secondary", (1.0, 1.1, 0.6))
+    b.part = "chest"
+    b.ball((0, 1.36, 0), 0.19, "primary", (1.0, 1.1, 1.0))
+    b.ball((0, 1.33, -0.11), 0.13, "secondary", (1.0, 1.2, 0.6))
+    b.limb((0, 1.48, 0), (0, 1.58, 0), 0.11, 0.09, "primary")
+    for z in (-0.02, 0.08):
+        b.box((0, 1.52 + z * 0.4, 0.1 + z), (0.03, 0.06, 0.06), "accent", 0.01, rot=(45, 0, 0))
+    b.part = "head"
+    b.box((0, 1.67, -0.1), (0.22, 0.19, 0.4), "primary", 0.07)  # skull + snout
+    b.box((0, 1.575, -0.13), (0.17, 0.05, 0.3), "secondary", 0.02)  # jaw
+    for sx in (-1, 1):
+        b.ball((0.1 * sx, 1.72, -0.02), 0.03, "glow")
+        for z in (-0.25, -0.19, -0.13):
+            b.box((0.06 * sx, 1.6, z), (0.02, 0.035, 0.02), "metal", 0.004, taper=(0.2, 0.2))
+    for s, sx in (("l", -1), ("r", 1)):
+        b.part = "upper_arm_" + s
+        b.limb((0.16 * sx, 1.36, -0.08), (0.18 * sx, 1.26, -0.14), 0.035, 0.03, "primary", 0.005)
+        b.part = "lower_arm_" + s
+        b.limb((0.18 * sx, 1.26, -0.14), (0.18 * sx, 1.2, -0.2), 0.028, 0.024, "primary", 0.005)
+        b.part = "hand_" + s
+        for dx in (-0.015, 0.015):
+            b.box((0.18 * sx + dx, 1.18, -0.22), (0.012, 0.012, 0.04), "metal", 0.003)
+        b.part = "thigh_" + s
+        b.ball((0.13 * sx, 0.9, 0.0), 0.13, "primary", (0.9, 1.4, 1.1))
+        b.limb((0.13 * sx, 0.86, 0.0), (0.13 * sx, 0.55, 0.01), 0.11, 0.08, "primary", 0.01)
+        b.part = "shin_" + s
+        b.limb((0.13 * sx, 0.54, 0.0), (0.13 * sx, 0.12, 0.02), 0.075, 0.06, "primary", 0.01)
+        b.part = "foot_" + s
+        b.box((0.13 * sx, 0.05, -0.06), (0.16, 0.1, 0.26), "joint", 0.03)
+        for dx in (-0.05, 0.0, 0.05):
+            b.box((0.13 * sx + dx, 0.04, -0.2), (0.025, 0.04, 0.05), "metal", 0.005, taper=(0.3, 0.3))
+
 
 def check(objs, parts):
     names = {n for n, _, _ in parts}
@@ -381,6 +518,10 @@ def main():
     b = Builder(PALETTES[variant])
     if variant == "doll":
         build_doll(b)
+    elif variant == "robot":
+        build_robot(b)
+    elif variant == "dino":
+        build_dino(b)
     elif variant == "soldier":
         build_soldier(b)
     else:
@@ -398,4 +539,5 @@ def main():
     print("EXPORTED", out)
 
 
-main()
+if __name__ == "__main__":
+    main()

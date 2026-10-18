@@ -26,8 +26,11 @@ func _ready() -> void:
 		p.attack_pressed = true
 		await wait(0.18)
 		await snap()
+	await wait(0.6)
 	p.combat._set_energy(100.0)
 	p.power_pressed = true
+	await wait(0.25)
+	await snap()
 	await wait(0.2)
 	await snap()
 	# the king

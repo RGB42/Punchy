@@ -140,14 +140,32 @@ static func ring(pos: Vector3, radius: float, color := Color(3.0, 1.6, 0.6, 1.0)
 	tw.tween_property(mat, "albedo_color:a", 0.0, time)
 
 
-static func _fire_ramp() -> Gradient:
+static func _fire_ramp(element := "blaze") -> Gradient:
 	var g := Gradient.new()
 	g.offsets = PackedFloat32Array([0.0, 0.25, 0.6, 1.0])
-	g.colors = PackedColorArray([Color(5, 4, 2, 1), Color(4, 1.6, 0.3, 0.9), Color(1.6, 0.35, 0.05, 0.6), Color(0.1, 0.05, 0.05, 0)])
+	if element == "frost":
+		g.colors = PackedColorArray([Color(0.8, 1.4, 2.2, 0.8), Color(0.3, 0.9, 1.8, 0.6), Color(0.2, 0.55, 1.3, 0.4), Color(0.4, 0.6, 0.9, 0)])
+		return g
+	if element == "volt":
+		g.colors = PackedColorArray([Color(3.2, 3.2, 2.2, 1), Color(3.0, 2.4, 0.4, 0.9), Color(1.4, 1.0, 0.1, 0.5), Color(0.3, 0.3, 0.6, 0)])
+		return g
+	if element == "stone":
+		g.colors = PackedColorArray([Color(1.6, 0.9, 0.35, 0.9), Color(0.7, 0.5, 0.35, 0.7), Color(0.4, 0.32, 0.25, 0.45), Color(0.3, 0.25, 0.2, 0)])
+		return g
+	if element == "venom":
+		g.colors = PackedColorArray([Color(1.2, 2.6, 0.4, 0.9), Color(0.6, 1.6, 0.25, 0.75), Color(0.45, 0.25, 0.8, 0.5), Color(0.2, 0.1, 0.3, 0)])
+		return g
+	if element == "gale":
+		g.colors = PackedColorArray([Color(1.6, 2.2, 2.0, 0.6), Color(1.0, 1.8, 1.5, 0.45), Color(0.7, 1.3, 1.1, 0.25), Color(0.6, 1.0, 0.9, 0)])
+		return g
+	if element == "shade":
+		g.colors = PackedColorArray([Color(1.8, 0.8, 2.6, 0.9), Color(0.9, 0.3, 1.6, 0.7), Color(0.4, 0.1, 0.7, 0.45), Color(0.1, 0.0, 0.2, 0)])
+		return g
+	g.colors = PackedColorArray([Color(3.2, 2.0, 0.7, 1), Color(2.8, 1.1, 0.25, 0.9), Color(1.3, 0.3, 0.05, 0.6), Color(0.1, 0.05, 0.05, 0)])
 	return g
 
 
-static func fire(pos: Vector3, dir: Vector3, spread_deg: float, speed: float, amount := 90, size := 0.9, life := 0.45) -> void:
+static func fire(pos: Vector3, dir: Vector3, spread_deg: float, speed: float, amount := 90, size := 0.9, life := 0.45, element := "blaze") -> void:
 	var p := _burst(pos, amount, life)
 	p.explosiveness = 0.75
 	p.mesh = _puff_mesh
@@ -166,7 +184,9 @@ static func fire(pos: Vector3, dir: Vector3, spread_deg: float, speed: float, am
 	curve.add_point(Vector2(0.3, 1.0))
 	curve.add_point(Vector2(1, 1.6))
 	p.scale_amount_curve = curve
-	p.color_ramp = _fire_ramp()
+	p.color_ramp = _fire_ramp(element)
+	if element == "frost":
+		p.gravity = Vector3(0, -8, 0)
 	p.angle_min = 0.0
 	p.angle_max = 360.0
 	_expire(p, life + 0.3)
@@ -183,8 +203,85 @@ static func prewarm() -> void:
 	fire(far, Vector3.UP, 20.0, 5.0, 4)
 
 
+## A lingering element cloud: venom's poison fog, gale's tornado (swirl > 0
+## spins the particles round the centre and up).
+static func cloud(pos: Vector3, element: String, secs: float, radius: float, swirl := 0.0) -> CPUParticles3D:
+	_init_shared()
+	var p := CPUParticles3D.new()
+	p.amount = 120
+	p.lifetime = 1.2
+	p.mesh = _puff_mesh
+	p.material_override = _fire_mat
+	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = radius
+	p.direction = Vector3.UP
+	p.spread = 30.0
+	p.initial_velocity_min = 0.3
+	p.initial_velocity_max = 1.5
+	p.gravity = Vector3(0, 0.5, 0)
+	p.scale_amount_min = radius * 0.25
+	p.scale_amount_max = radius * 0.5
+	p.color_ramp = _fire_ramp(element)
+	if swirl > 0.0:
+		p.emission_sphere_radius = radius * 0.6
+		p.tangential_accel_min = swirl
+		p.tangential_accel_max = swirl * 1.4
+		p.radial_accel_min = -swirl * 0.6
+		p.radial_accel_max = -swirl * 0.3
+		p.gravity = Vector3(0, 9.0, 0)
+		p.scale_amount_min = 0.4
+		p.scale_amount_max = 0.9
+	p.position = pos
+	_root().add_child(p)
+	p.emitting = true
+	p.get_tree().create_timer(secs, false).timeout.connect(func() -> void: p.emitting = false)
+	p.get_tree().create_timer(secs + p.lifetime + 0.2, false).timeout.connect(p.queue_free)
+	return p
+
+
+## A lightning arc from a to b that flickers twice and is gone.
+static func lightning(a: Vector3, b: Vector3, color := Color(3.0, 2.8, 1.0), width := 0.07) -> void:
+	_init_shared()
+	var holder := Node3D.new()
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = color
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = width
+	cyl.bottom_radius = width
+	cyl.height = 1.0
+	cyl.radial_segments = 5
+	cyl.rings = 1
+	_expire(holder, 0.2)
+	var build := func() -> void:
+		for ch in holder.get_children():
+			ch.queue_free()
+		var span := b - a
+		var n := clampi(int(span.length() / 0.7), 3, 14)
+		var side := span.cross(Vector3.UP).normalized() if absf(span.normalized().y) < 0.95 else Vector3.RIGHT
+		var up := side.cross(span).normalized()
+		var prev := a
+		for i in range(1, n + 1):
+			var p := a + span * (float(i) / n)
+			if i < n:
+				p += side * randf_range(-0.5, 0.5) + up * randf_range(-0.5, 0.5)
+			var seg := MeshInstance3D.new()
+			seg.mesh = cyl
+			seg.material_override = mat
+			var d := p - prev
+			var l := d.length()
+			var y := d / l
+			var x := y.cross(Vector3.FORWARD if absf(y.z) < 0.9 else Vector3.RIGHT).normalized()
+			holder.add_child(seg)
+			seg.global_transform = Transform3D(Basis(x, y * l, x.cross(y)), prev + d * 0.5)
+			prev = p
+	build.call()
+	holder.get_tree().create_timer(0.07, false).timeout.connect(build)
+	flash((a + b) * 0.5, Color(1.0, 0.95, 0.5), 5.0, 6.0, 0.15)
+
+
 ## A continuous jet for the figure's back thrusters; toggle `emitting`.
-static func thruster() -> CPUParticles3D:
+static func thruster(element := "blaze") -> CPUParticles3D:
 	_init_shared()
 	var p := CPUParticles3D.new()
 	p.emitting = false
@@ -204,7 +301,7 @@ static func thruster() -> CPUParticles3D:
 	curve.add_point(Vector2(0, 1.0))
 	curve.add_point(Vector2(1, 0.2))
 	p.scale_amount_curve = curve
-	p.color_ramp = _fire_ramp()
+	p.color_ramp = _fire_ramp(element)
 	return p
 
 

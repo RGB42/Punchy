@@ -90,6 +90,58 @@ static func _make(role: String) -> Material:
 			m.albedo_color = Color(0.78, 0.78, 0.8)
 			m.metallic = 1.0
 			m.roughness = 0.28
+		"steel":
+			m.albedo_color = Color(0.8, 0.81, 0.83)
+			m.metallic = 0.9
+			m.roughness = 0.32
+			m.roughness_texture = _noise_tex(0.04, false, 1.0, 2, Vector2(1, 8), Color(0.5, 0.5, 0.5), Color.WHITE)
+			m.uv1_scale = Vector3.ONE / 2.0
+		"tile_floor":
+			m.albedo_texture = _checker(Color(0.92, 0.9, 0.85), Color(0.3, 0.32, 0.36))
+			m.uv1_scale = Vector3.ONE / 7.2  # 30 cm tiles
+			m.roughness = 0.25
+		"tile_wall":
+			m.albedo_texture = _checker(Color(0.95, 0.97, 0.97), Color(0.95, 0.97, 0.97))
+			m.uv1_scale = Vector3.ONE / 3.6
+			m.roughness = 0.12
+		"granite":
+			m.albedo_color = Color(0.32, 0.32, 0.34)
+			m.albedo_texture = _noise_tex(0.6, false, 1.0, 1, Vector2.ONE, Color(0.35, 0.35, 0.38), Color(1.4, 1.4, 1.45))
+			m.uv1_scale = Vector3.ONE / 1.2
+			m.roughness = 0.18
+		"water":
+			m.albedo_color = Color(0.35, 0.6, 0.85, 0.55)
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.roughness = 0.02
+			m.emission_enabled = true
+			m.emission = Color(0.1, 0.25, 0.4)
+		"hotplate":
+			m.albedo_color = Color(0.05, 0.05, 0.06)
+			m.roughness = 0.12
+		"hotplate_glow":
+			m.albedo_color = Color(0.3, 0.05, 0.02)
+			m.emission_enabled = true
+			m.emission = Color(1.0, 0.25, 0.05)
+			m.emission_energy_multiplier = 3.0
+		"cabinet_mint":
+			m.albedo_color = Color(0.62, 0.84, 0.74)
+			m.roughness = 0.35
+		"ceramic":
+			m.albedo_color = Color(0.96, 0.95, 0.92)
+			m.roughness = 0.12
+			m.clearcoat_enabled = true
+		"cookie":
+			m.albedo_color = Color(0.78, 0.52, 0.26)
+			m.albedo_texture = _noise_tex(0.3, false, 1.0, 2, Vector2.ONE, Color(0.35, 0.2, 0.1), Color(1.15, 1.1, 1.0))
+			m.uv1_scale = Vector3.ONE / 0.8
+			m.roughness = 0.9
+		"towel":
+			m.albedo_texture = _checker(Color(0.88, 0.2, 0.2), Color(0.96, 0.95, 0.93))
+			m.uv1_scale = Vector3.ONE / 1.2
+			m.roughness = 0.95
+			m.normal_enabled = true
+			m.normal_texture = _weave()
+			m.normal_scale = 0.5
 		"leaf":
 			m.albedo_color = Color(0.18, 0.48, 0.16)
 			m.roughness = 0.45
@@ -105,6 +157,12 @@ static func _make(role: String) -> Material:
 				m.clearcoat_enabled = true
 				m.clearcoat = 0.6
 				m.clearcoat_roughness = 0.15
+			elif role.begins_with("fruit_"):
+				var c := {"fruit_red": Color(0.82, 0.08, 0.06), "fruit_yellow": Color(0.98, 0.84, 0.2),
+					"fruit_orange": Color(1.0, 0.5, 0.05)}
+				m.albedo_color = c.get(role, Color.WHITE)
+				m.roughness = 0.3
+				m.clearcoat_enabled = true
 			elif role.begins_with("book_"):
 				var c := {"book_a": Color(0.62, 0.14, 0.14), "book_b": Color(0.14, 0.3, 0.56),
 					"book_c": Color(0.86, 0.7, 0.3), "book_d": Color(0.2, 0.5, 0.34)}
@@ -198,6 +256,21 @@ static func _wallpaper() -> ImageTexture:
 				var lim := r * (0.55 + 0.45 * absf(cos(a * 2.5)))
 				if d.length() <= lim:
 					img.set_pixel(x, y, star)
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+
+## Two-colour checker with dark grout lines; one tile per half texture.
+static func _checker(a: Color, b: Color) -> ImageTexture:
+	const S := 128
+	var img := Image.create(S, S, false, Image.FORMAT_RGB8)
+	var grout := a.darkened(0.35)
+	for y in S:
+		for x in S:
+			var c := a if ((x / 64) + (y / 64)) % 2 == 0 else b
+			if x % 64 < 2 or y % 64 < 2:
+				c = grout
+			img.set_pixel(x, y, c)
 	img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
 

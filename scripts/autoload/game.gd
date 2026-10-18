@@ -5,6 +5,14 @@ extends Node
 const HITSTOP_SCALE := 0.03
 const HITSTOP_MAX := 0.15
 
+## The rooms of the house, in play order.
+const LEVELS := [
+	{"name": "Das Kinderzimmer", "scene": "res://scenes/kids_room.tscn"},
+	{"name": "Die Küche", "scene": "res://scenes/kitchen.tscn"},
+]
+
+var hero := "blaze"  # id from Heroes.ALL, chosen on the select screen
+var level := 0  # index into LEVELS
 var trauma := 0.0  # 0..1, read and decayed by the camera
 var fov_kick := 0.0  # degrees, read and decayed by the camera
 var _hitstop_until := 0
@@ -16,6 +24,11 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_setup_input()
 	_make_players()
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--hero="):
+			hero = a.trim_prefix("--hero=")
+		elif a.begins_with("--level="):
+			level = a.trim_prefix("--level=").to_int()
 	_dev_screenshot()
 
 
@@ -60,6 +73,9 @@ func _process(_delta: float) -> void:
 	if now < _hitstop_until:
 		scale = min(scale, HITSTOP_SCALE)
 	Engine.time_scale = scale
+	var real_delta := (now - _last_ticks) / 1000.0 if _last_ticks > 0 else 0.0
+	_last_ticks = now
+	_update_music(real_delta)
 
 
 ## Freeze the world briefly. Overlapping calls take the longest, never the sum.
@@ -106,6 +122,48 @@ func sfx(name: String, volume_db := 0.0, pitch_var := 0.08) -> void:
 	pl.play()
 
 
+## Two synced loops (tools/gen_music.py): the combat layer fades in while an
+## arena is active, the explore layer ducks under it.
+func start_music() -> void:
+	if _explore == null:
+		_explore = _music_player("explore")
+		_combat = _music_player("combat")
+	if not _explore.playing:
+		_explore.play()
+		_combat.play()
+	_combat_mix = 0.0
+	_combat_target = 0.0
+
+
+func set_combat(on: bool) -> void:
+	_combat_target = 1.0 if on else 0.0
+
+
+func _music_player(name: String) -> AudioStreamPlayer:
+	var pl := AudioStreamPlayer.new()
+	var s := load("res://assets/music/%s.wav" % name) as AudioStreamWAV
+	s.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	s.loop_begin = 0
+	s.loop_end = int(s.get_length() * s.mix_rate)
+	pl.stream = s
+	add_child(pl)
+	return pl
+
+
+func _update_music(real_delta: float) -> void:
+	if _explore == null:
+		return
+	# fights kick in fast, the calm comes back slowly
+	_combat_mix = move_toward(_combat_mix, _combat_target, real_delta * (1.5 if _combat_target > _combat_mix else 0.25))
+	_combat.volume_db = linear_to_db(maxf(_combat_mix, 0.0001)) - 3.0
+	_explore.volume_db = -4.0 - 5.0 * _combat_mix
+
+
+var _explore: AudioStreamPlayer
+var _combat: AudioStreamPlayer
+var _combat_mix := 0.0
+var _combat_target := 0.0
+var _last_ticks := 0
 var _sounds := {}
 var _players: Array[AudioStreamPlayer] = []
 var _next_player := 0

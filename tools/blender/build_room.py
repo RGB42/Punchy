@@ -1,163 +1,16 @@
-"""Builds level 1, the kids' room, at figure scale (real size x 12).
+"""Builds level 1, the kids' room (54 x 54 x 30; x -27..27, z -27..27, floor y 0).
 
     "N:/Programme/Blender/blender.exe" --background --python-exit-code 1 \
         --python tools/blender/build_room.py -- assets/models/rooms/kids_room.glb
 
-Room: 54 x 54 x 30 (x -27..27, z -27..27, floor y 0). North wall (-z) has the
-window, the goal. All coordinates are Godot space (Y up); g2b() converts.
-
-What the glTF carries (the contract with scripts/level/room.gd):
-  * visual meshes, joined per furniture group, materials named by role
-    (parquet, wood_light, fabric_blanket, ...) so Godot can swap in its own
-  * collision boxes as separate objects "<name>-convcolonly"; Godot makes them
-    StaticBody3D nodes. A name containing "_climb" marks a climbable surface.
-  * empties used as markers: spawn_player, cam_intro_<n>, grapple_pull_<n>,
-    grapple_swing_<n>, arena_<n> (+ arena_<n>_barrier_<k>, scaled to the block
-    size, origin at the block base), checkpoint_<n>, goal
-  * window_l / window_r: the casements, origins on their hinges, so Godot can
-    swing them open
+North wall (-z) has the window, the goal. The marker contract is in roomkit.py.
 """
 import math
 import os
 import sys
 
-import bpy
-from mathutils import Matrix, Vector
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-C = Matrix(((1, 0, 0), (0, 0, -1), (0, 1, 0)))
-
-MATS = {
-    "parquet": (0.62, 0.42, 0.25, 0.55), "wall": (0.86, 0.83, 0.74, 0.9), "ceiling": (0.95, 0.95, 0.93, 0.9),
-    "baseboard": (0.95, 0.95, 0.93, 0.5), "wood_light": (0.78, 0.6, 0.4, 0.5), "wood_white": (0.92, 0.91, 0.88, 0.4),
-    "wood_dark": (0.35, 0.22, 0.14, 0.5), "fabric_blanket": (0.25, 0.45, 0.75, 0.95), "fabric_sheet": (0.92, 0.92, 0.95, 0.95),
-    "fabric_curtain": (0.85, 0.55, 0.3, 0.95), "fabric_shirt": (0.5, 0.65, 0.4, 0.95), "rug": (0.75, 0.3, 0.25, 1.0),
-    "metal": (0.75, 0.75, 0.78, 0.3), "cardboard": (0.65, 0.5, 0.32, 0.9), "sill": (0.95, 0.95, 0.95, 0.3),
-    "glass": (0.75, 0.88, 0.95, 0.05), "sky": (0.7, 0.85, 1.0, 1.0), "lampshade": (0.95, 0.9, 0.75, 0.8),
-    "plastic_red": (0.85, 0.12, 0.1, 0.3), "plastic_blue": (0.1, 0.35, 0.85, 0.3), "plastic_yellow": (0.95, 0.75, 0.1, 0.3),
-    "plastic_green": (0.15, 0.65, 0.25, 0.3), "plastic_grey": (0.55, 0.55, 0.58, 0.5), "book_a": (0.6, 0.15, 0.15, 0.7),
-    "book_b": (0.15, 0.3, 0.55, 0.7), "book_c": (0.85, 0.7, 0.3, 0.7), "book_d": (0.2, 0.5, 0.35, 0.7),
-    "pot": (0.75, 0.4, 0.25, 0.8), "leaf": (0.15, 0.45, 0.15, 0.6), "paper": (0.97, 0.97, 0.95, 0.9),
-    "rope": (0.8, 0.75, 0.6, 0.9),
-}
-
-
-def g2b(v):
-    return Vector((v[0], -v[2], v[1]))
-
-
-def rot_b(deg):
-    x, y, z = (math.radians(a) for a in deg)
-    rg = Matrix.Rotation(y, 3, "Y") @ Matrix.Rotation(x, 3, "X") @ Matrix.Rotation(z, 3, "Z")
-    return C @ rg @ C.transposed()
-
-
-class Room:
-    def __init__(self):
-        self.mats = {}
-        for name, (r, g, b, rough) in MATS.items():
-            m = bpy.data.materials.new(name)
-            m.use_nodes = True
-            bsdf = m.node_tree.nodes["Principled BSDF"]
-            bsdf.inputs["Base Color"].default_value = (r, g, b, 1)
-            bsdf.inputs["Roughness"].default_value = rough
-            if name == "metal":
-                bsdf.inputs["Metallic"].default_value = 1.0
-            if name in ("sky",):
-                bsdf.inputs["Emission Color"].default_value = (r, g, b, 1)
-                bsdf.inputs["Emission Strength"].default_value = 3.0
-            self.mats[name] = m
-        self.groups = {}  # group -> [objects]
-        self.group = "misc"
-        self.ncol = 0
-
-    # ------------------------------------------------------------ primitives
-    def _finish(self, o, mat, bevel):
-        o.data.materials.append(self.mats[mat])
-        if bevel > 0:
-            b = o.modifiers.new("bevel", "BEVEL")
-            b.width = bevel
-            b.segments = 2
-            b.limit_method = "ANGLE"
-            b.harden_normals = True
-        dg = bpy.context.evaluated_depsgraph_get()
-        me = bpy.data.meshes.new_from_object(o.evaluated_get(dg))
-        me.transform(o.matrix_world)
-        for p in me.polygons:
-            p.use_smooth = True
-        baked = bpy.data.objects.new(o.name, me)
-        bpy.context.collection.objects.link(baked)
-        bpy.data.objects.remove(o, do_unlink=True)
-        self.groups.setdefault(self.group, []).append(baked)
-        return baked
-
-    def collider(self, c, s, rot=(0, 0, 0), climb=False, name=None):
-        bpy.ops.mesh.primitive_cube_add(size=1.0)
-        o = bpy.context.active_object
-        o.data.transform(Matrix.Diagonal((s[0], s[2], s[1], 1)))
-        o.matrix_world = Matrix.Translation(g2b(c)) @ rot_b(rot).to_4x4()
-        self.ncol += 1
-        base = name or self.group
-        o.name = "%s%s_%03d-convcolonly" % (base, "_climb" if climb else "", self.ncol)
-        return o
-
-    def box(self, c, s, mat, bevel=0.15, col=True, climb=False, rot=(0, 0, 0), taper=(1.0, 1.0)):
-        bpy.ops.mesh.primitive_cube_add(size=1.0)
-        o = bpy.context.active_object
-        for v in o.data.vertices:
-            if v.co.z < 0:
-                v.co.x *= taper[0]
-                v.co.y *= taper[1]
-        o.data.transform(Matrix.Diagonal((s[0], s[2], s[1], 1)))
-        o.matrix_world = Matrix.Translation(g2b(c)) @ rot_b(rot).to_4x4()
-        bpy.context.view_layer.update()
-        self._finish(o, mat, min(bevel, min(s) * 0.45))
-        if col:
-            self.collider(c, s, rot, climb)
-
-    def cyl(self, p0, p1, r0, r1, mat, sides=24, bevel=0.08, col=False):
-        a, b = g2b(p0), g2b(p1)
-        bpy.ops.mesh.primitive_cone_add(vertices=sides, radius1=r0, radius2=r1, depth=(b - a).length)
-        o = bpy.context.active_object
-        o.matrix_world = Matrix.Translation((a + b) / 2) @ Vector((0, 0, 1)).rotation_difference(b - a).to_matrix().to_4x4()
-        bpy.context.view_layer.update()
-        self._finish(o, mat, bevel)
-        if col:
-            # an upright cylinder collides as its bounding box, which is what a figure expects to stand on
-            lo = [min(p0[i], p1[i]) for i in range(3)]
-            hi = [max(p0[i], p1[i]) for i in range(3)]
-            r = max(r0, r1) * 0.9
-            c = [(lo[i] + hi[i]) / 2 for i in range(3)]
-            s = [hi[0] - lo[0] + 2 * r, hi[1] - lo[1], hi[2] - lo[2] + 2 * r]
-            self.collider(c, s)
-
-    def ball(self, c, r, mat, scale=(1, 1, 1), col=False):
-        bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=14, radius=r)
-        o = bpy.context.active_object
-        o.data.transform(Matrix.Diagonal((scale[0], scale[2], scale[1], 1)))
-        o.location = g2b(c)
-        bpy.context.view_layer.update()
-        self._finish(o, mat, 0)
-        if col:
-            self.collider(c, (2 * r * scale[0] * 0.85, 2 * r * scale[1] * 0.85, 2 * r * scale[2] * 0.85))
-
-    def marker(self, name, c, size=(1, 1, 1)):
-        e = bpy.data.objects.new(name, None)
-        e.empty_display_type = "CUBE"
-        e.location = g2b(c)
-        e.scale = (size[0], size[2], size[1])
-        bpy.context.collection.objects.link(e)
-
-    def join_groups(self, pivots):
-        for name, objs in self.groups.items():
-            with bpy.context.temp_override(active_object=objs[0], selected_editable_objects=objs):
-                bpy.ops.object.join()
-            o = objs[0]
-            o.name = o.data.name = name
-            if name in pivots:
-                p = g2b(pivots[name])
-                o.data.transform(Matrix.Translation(-p))
-                o.location = p
+sys.path.insert(0, os.path.dirname(__file__))
+from roomkit import Room, finish, out_path  # noqa: E402
 
 
 # ------------------------------------------------------------------ the room
@@ -424,6 +277,56 @@ def desk(r):
     r.marker("arena_4", (22.2, 9.0, -16.8), (8.8, 7, 18))
 
 
+def decor(r):
+    """Things that sell the scale: a teddy, wall sockets, crayons, bricks, a clock, posters."""
+    r.group = "teddy"  # sits in front of the window wall, between shelf and desk
+    tx, tz = -2.5, -22.0
+    r.ball((tx, 2.3, tz), 2.1, "cardboard", (1.0, 1.15, 0.9), col=True)
+    r.ball((tx, 5.2, tz + 0.2), 1.55, "cardboard", col=True)
+    for sx in (-1, 1):
+        r.ball((tx + 1.15 * sx, 6.5, tz + 0.2), 0.6, "cardboard", (1, 1, 0.5))
+        r.ball((tx + 1.9 * sx, 2.6, tz + 0.6), 0.75, "cardboard", (1.4, 0.9, 0.9))
+        r.ball((tx + 1.0 * sx, 0.8, tz + 1.6), 0.85, "cardboard", (1, 0.9, 1.4))
+        r.ball((tx + 0.5 * sx, 5.5, tz + 1.55), 0.16, "wood_dark")
+    r.ball((tx, 4.9, tz + 1.55), 0.6, "paper", (1, 0.8, 0.6))
+    r.ball((tx, 5.05, tz + 2.1), 0.2, "wood_dark")
+    r.group = "sockets"
+    for c in ((26.9, 3.6, -4.0), (-3.0, 3.6, 26.9)):
+        rot = (0, 90, 0) if abs(c[0]) > 20 else (0, 0, 0)
+        r.box(c, (2.4, 2.4, 0.3), "baseboard", 0.15, col=False, rot=rot)
+        for d in (-0.45, 0.45):
+            off = (0, 0, d) if abs(c[0]) > 20 else (d, 0, 0)
+            r.cyl((c[0] + off[0] - (0.16 if c[0] > 20 else 0), c[1], c[2] + off[2] - (0.16 if c[2] > 20 else 0)),
+                  (c[0] + off[0] - (0.2 if c[0] > 20 else 0), c[1], c[2] + off[2] - (0.2 if c[2] > 20 else 0)), 0.18, 0.18, "wood_dark", 10, 0)
+    r.box((9.6, 12.6, 26.85), (1.0, 1.6, 0.3), "baseboard", 0.1, col=False)  # light switch by the door
+    r.group = "crayons"
+    for i, (x, z, a, m) in enumerate(((13.5, 3, 20, "plastic_red"), (13.0, 5.5, -35, "plastic_blue"),
+                                      (14.2, 7.5, 60, "plastic_green"), (12.6, 9.5, -5, "plastic_yellow"))):
+        dx, dz = math.cos(math.radians(a)) * 2.4, math.sin(math.radians(a)) * 2.4
+        r.cyl((x - dx, 0.45, z - dz), (x + dx, 0.45, z + dz), 0.45, 0.45, m, 8, 0.05)
+        r.cyl((x + dx, 0.45, z + dz), (x + dx * 1.18, 0.45, z + dz * 1.18), 0.45, 0.05, m, 8, 0.02)
+        r.collider((x, 0.45, z), (0.8, 0.9, 5.2), rot=(0, 90 - a, 0))
+    r.group = "bricks"
+    for (x, z, m, rot) in ((-13.2, 2.0, "plastic_red", 15), (-12.6, 6.0, "plastic_blue", -20), (-13.0, 9.5, "plastic_yellow", 40)):
+        r.box((x, 0.6, z), (3.2, 1.2, 1.6), m, 0.08, rot=(0, rot, 0))
+        for i in range(4):
+            for j in range(2):
+                lx, lz = -1.2 + 0.8 * i, -0.4 + 0.8 * j
+                ca, sa = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+                px, pz = x + lx * ca + lz * sa, z - lx * sa + lz * ca
+                r.cyl((px, 1.2, pz), (px, 1.45, pz), 0.24, 0.24, m, 12, 0.03)
+    r.group = "clock"
+    r.cyl((2.0, 27.9, 26.95), (2.0, 27.9, 26.55), 1.5, 1.5, "paper", 32, 0.1)
+    r.box((2.0, 28.4, 26.5), (0.12, 1.0, 0.05), "wood_dark", 0.02, col=False)
+    r.box((2.35, 27.9, 26.5), (0.7, 0.12, 0.05), "wood_dark", 0.02, col=False)
+    r.group = "posters"
+    for c, s, rot, m1, m2 in (((26.85, 22.0, -15.0), (0.1, 6.0, 4.5), (0, 90, 0), "book_b", "plastic_yellow"),
+                              ((-7.0, 15.0, 26.85), (6.5, 4.5, 0.1), (0, 0, 0), "book_c", "plastic_blue")):
+        r.box(c, s, m1, 0.03, col=False, rot=rot)
+        inner = (c[0] - (0.06 if c[0] > 20 else 0), c[1] + 0.3, c[2] - (0.06 if c[2] > 20 else 0))
+        r.ball(inner, 1.1, m2, (1.0 if c[0] > 20 else 1.0, 1.0, 0.1 if c[2] > 20 else 1.0) if c[2] > 20 else (0.1, 1.0, 1.0))
+
+
 def stars(r):
     # optional collectibles, each a short detour off the main route
     for i, c in enumerate(((17.4, 9.6, 23.8), (-3.7, 7.2, 8.7), (-24.5, 1.2, 19.5), (-7.0, 1.6, 24.0), (25.8, 19.4, -21.0))):
@@ -437,34 +340,12 @@ def intro_camera(r):
 
 
 def main():
-    args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    out = args[0] if args else os.path.join("assets", "models", "rooms", "kids_room.glb")
-    out = out if os.path.isabs(out) else os.path.join(ROOT, out)
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    out = out_path(os.path.join("assets", "models", "rooms", "kids_room.glb"))
     r = Room()
-    shell(r)
-    window(r)
-    wardrobe(r)
-    rug_and_toys(r)
-    loft_bed(r)
-    hanging_plant(r)
-    bookshelf(r)
-    ceiling_lamp(r)
-    desk(r)
-    stars(r)
-    intro_camera(r)
-    r.join_groups({"window_l": (-5.4, 13.2, -28.0), "window_r": (9.0, 13.2, -28.0)})
-    cols = [o for o in bpy.data.objects if o.name.endswith("-convcolonly")]
-    marks = [o for o in bpy.data.objects if o.type == "EMPTY"]
-    tris = sum(sum(len(f.vertices) - 2 for f in o.data.polygons) for o in bpy.data.objects if o.type == "MESH" and o not in cols)
-    assert any(o.name == "spawn_player" for o in marks), "no spawn"
-    assert any(o.name == "goal" for o in marks), "no goal"
-    print("CHECK ok: %d groups, %d colliders, %d markers, %d tris" % (len(r.groups), len(cols), len(marks), tris))
-    bpy.ops.object.select_all(action="SELECT")
-    bpy.ops.export_scene.gltf(filepath=out, export_format="GLB", export_yup=True, export_apply=True,
-                              export_animations=False, export_extras=False)
-    print("EXPORTED", out)
+    for build in (shell, window, wardrobe, rug_and_toys, loft_bed, hanging_plant, bookshelf, ceiling_lamp,
+                  desk, decor, stars, intro_camera):
+        build(r)
+    finish(r, out, {"window_l": (-5.4, 13.2, -28.0), "window_r": (9.0, 13.2, -28.0)})
 
 
 main()

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/tests/shot_kitchen.gd" id="1"]
+
+[node name="ShotKitchen" type="Node"]
+script = ExtResource("1")

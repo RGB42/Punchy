@@ -1,7 +1,11 @@
 # Punchy — Umsetzungsplan
 
-> **Stand 2026-10-18:** M1–M4 umgesetzt, 41 Headless-Tests grün (Bewegung 17, Kampf 13,
-> Gegner 6, Route 5). Offen: Anspielen durch Ralph (Gefühl, Spieldauer 20–30 min prüfen),
+> **Stand 2026-10-18:** M1–M7 umgesetzt, 72 Headless-Tests grün (Bewegung 17, Kampf 20,
+> Gegner 6, Route 5, Helden 24). M5 = Finisher, Boden-Takedown, Luftkombo, Wand-Aufprall,
+> Kampfkamera. M6 = Auswahlbildschirm, Frost (Eis), Volt (Blitz), dynamische Musik.
+> M7 = alle 7 Figuren: Boulder (Stein), Venom (Gift), Gale (Wind), Shade (Schatten).
+> M8 = Level 2 Küche (Gefahren Wasser/Herdplatte), Aufziehroboter, Dino, Endgegner Drache,
+> Level-Basisklasse + Levelwahl, Kraftfeld-Barrieren, Bosskamera. 91 Tests grün. Offen: Anspielen durch Ralph (Gefühl, Spieldauer 20–30 min prüfen),
 > Musik, weitere Figuren. Abweichungen vom Plan: Bosskampf ist der „Blechkönig“
 > (Riesenritter) statt eines Drachen; Animationen laufen ohne Skinning über Gelenk-Nodes.
 

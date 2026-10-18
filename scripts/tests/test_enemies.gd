@@ -22,6 +22,113 @@ func run() -> void:
 	await test_king_armour()
 	await test_king_slam()
 	await test_king_summons_and_guard_falls()
+	await test_robot_armour()
+	await test_dino_tail()
+	await test_dragon_bite_counter()
+	await test_dragon_breath()
+	await test_dragon_dive()
+	await test_dragon_summons_dinos()
+
+
+func test_robot_armour() -> void:
+	await reset_player()
+	var r := await spawn("robot", Vector3(0, 0, -3))
+	r._enter(Enemy.State.STRAFE)
+	var hp := r.health
+	r.take_hit({"damage": 10.0, "knock": 5.0, "dir": Vector3.FORWARD})
+	await frames(2)
+	var light_ok := r.state == Enemy.State.STRAFE and r.health < hp
+	r.take_hit({"damage": 24.0, "knock": 7.0, "launch": 13.0, "dir": Vector3.FORWARD, "breaks_guard": true})
+	await frames(2)
+	check(light_ok and r.state == Enemy.State.AIRBORNE, "robot_armour",
+		"light_ok=%s after heavy=%s" % [light_ok, Enemy.State.keys()[r.state]])
+
+
+func test_dino_tail() -> void:
+	await reset_player()
+	var d := await spawn("dino", Vector3(0, 0, -2.5))
+	d._attack = "tail"
+	d._start_windup()
+	await real_wait(d.windup_time + 0.5)
+	var hit_ground := p.combat.health < PlayerCombat.MAX_HEALTH
+	await reset_player()
+	d = await spawn("dino", Vector3(0, 0, -2.5))
+	d._attack = "tail"
+	d._start_windup()
+	await real_wait(d.windup_time - 0.15)
+	p.jump_pressed = true
+	p.jump_held = true
+	await real_wait(0.6)
+	p.jump_held = false
+	check(hit_ground and p.combat.health == PlayerCombat.MAX_HEALTH, "dino_tail_jumpable",
+		"hit_on_ground=%s hp_after_jump=%.0f" % [hit_ground, p.combat.health])
+
+
+func spawn_dragon(offset: Vector3) -> Dragon:
+	var d := Dragon.new()
+	d.aggro_range = 0.0
+	d.position = HOME + offset
+	d.rotation.y = PI
+	gym.add_child(d)
+	await frames(3)
+	d.player = p
+	return d
+
+
+func test_dragon_bite_counter() -> void:
+	await reset_player()
+	var d := await spawn_dragon(Vector3(0, 0, -4))
+	d._attack = "bite"
+	d._start_windup()
+	await frames(8)
+	check(d.is_counterable(), "dragon_bite_counterable")
+	p.counter_pressed = true
+	await real_wait(0.5)
+	check(d.state == Enemy.State.STAGGER and p.combat.health == PlayerCombat.MAX_HEALTH, "dragon_countered",
+		"state=%s hp=%.0f" % [Enemy.State.keys()[d.state], p.combat.health])
+	d.queue_free()
+
+
+func test_dragon_breath() -> void:
+	await reset_player()
+	var d := await spawn_dragon(Vector3(0, 0, -6))
+	d._attack = "breath"
+	d._start_windup()
+	check(not d.is_counterable(), "dragon_breath_not_counterable")
+	await real_wait(d.windup_time + 1.0)
+	check(p.combat.health < PlayerCombat.MAX_HEALTH, "dragon_breath_burns", "hp=%.0f" % p.combat.health)
+	d.queue_free()
+
+
+func test_dragon_dive() -> void:
+	await reset_player()
+	var d := await spawn_dragon(Vector3(0, 0, -6))
+	d._attack = "dive"
+	d._start_windup()
+	var peak := 0.0
+	var marked := false
+	for i in int((d.windup_time + 2.6) * 120):
+		await frames(1)
+		peak = maxf(peak, d.global_position.y - d.home.y)
+		marked = marked or is_instance_valid(d._marker)
+	check(peak > 6.0 and marked and absf(d.global_position.y - d.home.y) < 0.6, "dragon_dive",
+		"peak=%.1f marked=%s back_down=%.2f" % [peak, marked, d.global_position.y - d.home.y])
+	check(p.combat.health < PlayerCombat.MAX_HEALTH, "dragon_dive_hits_grounded", "hp=%.0f" % p.combat.health)
+	d.queue_free()
+
+
+func test_dragon_summons_dinos() -> void:
+	await reset_player()
+	var d := await spawn_dragon(Vector3(0, 0, -7))
+	d._enter(Enemy.State.STRAFE)
+	d.health = d.max_health * 0.4
+	d._pick_boss_attack(7.0)
+	await frames(3)
+	var kinds := d._summons.map(func(e: Enemy) -> String: return e.kind)
+	check(kinds == ["dino", "dino"], "dragon_summons_dinos", "summoned=%s" % [kinds])
+	d.take_hit({"damage": 9999.0, "dir": Vector3.FORWARD, "breaks_guard": true})
+	await real_wait(0.3)
+	check(not is_instance_valid(d) or not d.is_alive(), "dragon_dies")
 
 
 func reset_player() -> void:
@@ -36,6 +143,7 @@ func reset_player() -> void:
 	p.set_state(Player.State.AIR)
 	p.combat.heal_full()
 	p.combat._invuln = 0.0
+	Game._slowmo_until = 0  # a boss death's slow motion must not leak into the next test
 	await seconds(0.5)
 
 

@@ -26,6 +26,67 @@ func run() -> void:
 	await test_slam()
 	await test_flame()
 	await test_arena()
+	await test_finisher()
+	await test_ground_finish()
+	await test_juggle()
+	await test_wall_splat()
+
+
+func test_finisher() -> void:
+	await reset_player()
+	var e := await spawn(Vector3(0, 0, -5), true, 200.0)
+	p.combat._set_combo(PlayerCombat.FINISHER_COMBO)
+	check(p.combat.finisher_ready(), "finisher_ready_at_8")
+	p.heavy_pressed = true
+	var cut := false
+	for i in 200:
+		await frames(1)
+		var cam := gym.get_node("Camera") as PlayerCamera
+		cut = cut or cam._cine_t > 0.0
+	await real_wait(0.6)
+	check(cut, "finisher_camera_cut")
+	var dead := not is_instance_valid(e) or not e.is_alive()
+	check(dead and p.combat.finisher_at == PlayerCombat.FINISHER_COMBO * 2, "finisher_takes_down",
+		"dead=%s next_at=%d" % [dead, p.combat.finisher_at])
+	await real_wait(0.6)
+
+
+func test_ground_finish() -> void:
+	await reset_player()
+	var e := await spawn(Vector3(0, 0, -3))
+	e._enter(Enemy.State.DOWN)
+	e._t = -5.0  # stay down
+	p.attack_pressed = true
+	await real_wait(1.0)
+	check(not is_instance_valid(e) or not e.is_alive(), "ground_takedown_kills")
+
+
+func test_juggle() -> void:
+	await reset_player()
+	var e := await spawn(Vector3(0, 0, -2.5), false, 200.0)
+	p.heavy_pressed = true
+	await real_wait(0.45)
+	check(e.state == Enemy.State.AIRBORNE, "uppercut_launches", "state=%s" % Enemy.State.keys()[e.state])
+	p.jump_pressed = true
+	await frames(2)
+	var rising := p.state == Player.State.AIR and p.velocity.y > 5.0
+	await real_wait(0.3)
+	p.attack_pressed = true
+	await real_wait(0.35)
+	var hp := e.health
+	var height := e.global_position.y - HOME.y
+	check(rising and hp < 200.0 - 24.0 and height > 1.5 and e.state == Enemy.State.AIRBORNE, "air_juggle",
+		"rising=%s hp=%.0f height=%.1f state=%s" % [rising, hp, height, Enemy.State.keys()[e.state]])
+	await real_wait(2.0)
+
+
+func test_wall_splat() -> void:
+	await reset_player()
+	# the gym's ledge wall front face is at z = -13.5
+	var e := await spawn(Vector3(0, 0, -21.5), false, 40.0)
+	e.take_hit({"damage": 1.0, "knock": 14.0, "dir": Vector3.FORWARD})
+	await real_wait(0.6)
+	check(e.health <= 40.0 - 1.0 - Enemy.SPLAT_DAMAGE + 0.01, "wall_splat_hurts", "hp=%.1f" % e.health)
 
 
 func test_arena() -> void:
@@ -44,7 +105,7 @@ func test_arena() -> void:
 	check(arena.active and arena.wave == 0, "arena_starts", "active=%s wave=%d" % [arena.active, arena.wave])
 	var block: StaticBody3D = arena._blocks[0]
 	await seconds(0.6)
-	check(block.collision_layer == 1 and absf(block.position.y) < 0.05, "barrier_up", "y=%.2f" % block.position.y)
+	check(block.collision_layer == Arena.BARRIER_LAYER and absf(block.position.y) < 0.05, "barrier_up", "y=%.2f" % block.position.y)
 	for w in 2:
 		await seconds(0.3)
 		for e in arena._spawned:

@@ -17,6 +17,7 @@ const PARTS := [
 ]
 
 var joints := {}  # part -> Node3D
+var parts: Array = PARTS  # this figure's skeleton; the first part carries the "root" offset
 var base_rate := 16.0  # how fast the base pose follows its target, 1/s
 
 var _hips_rest := Vector3.ZERO
@@ -37,15 +38,16 @@ var _final := {}  # part -> Quaternion, last applied
 var _final_root := Vector3.ZERO
 
 
-func _init(figure: Node3D) -> void:
-	for p in PARTS:
+func _init(figure: Node3D, part_list: Array = PARTS) -> void:
+	parts = part_list
+	for p in parts:
 		var n := figure.find_child(p, true, false) as Node3D
 		assert(n != null, "figure has no part %s" % p)
 		joints[p] = n
 		_base[p] = Quaternion.IDENTITY
 		_target[p] = Quaternion.IDENTITY
 		_final[p] = Quaternion.IDENTITY
-	_hips_rest = joints["hips"].position
+	_hips_rest = joints[parts[0]].position
 
 
 static func q(deg: Vector3) -> Quaternion:
@@ -65,7 +67,7 @@ func set_base(pose: Dictionary, rate := 16.0) -> void:
 ## Jump the base straight to a pose (no smoothing), e.g. when spawning.
 func snap_base(pose: Dictionary) -> void:
 	set_base(pose)
-	for p in PARTS:
+	for p in parts:
 		_base[p] = _target[p]
 	_base_root = _target_root
 
@@ -96,7 +98,7 @@ func is_playing() -> bool:
 
 func update(delta: float) -> void:
 	var k := 1.0 - exp(-base_rate * delta)
-	for p in PARTS:
+	for p in parts:
 		_base[p] = (_base[p] as Quaternion).slerp(_target[p], k)
 	_base_root = _base_root.lerp(_target_root, k)
 
@@ -115,14 +117,14 @@ func update(delta: float) -> void:
 		if not _clip.is_empty():
 			clip_root = _sample_clip(clip_pose)
 
-	for p in PARTS:
+	for p in parts:
 		var r: Quaternion = _base[p]
 		if clip_pose.has(p):
 			r = r.slerp(clip_pose[p], _weight)
 		_final[p] = r
 		(joints[p] as Node3D).quaternion = r
 	_final_root = _base_root.lerp(clip_root, _weight)
-	(joints["hips"] as Node3D).position = _hips_rest + _final_root
+	(joints[parts[0]] as Node3D).position = _hips_rest + _final_root
 
 
 ## Walks the keys up to the current time. Parts a key leaves out carry over from
@@ -130,7 +132,7 @@ func update(delta: float) -> void:
 func _sample_clip(out: Dictionary) -> Vector3:
 	var prev := {}
 	var prev_root := _clip_start_root
-	for p in PARTS:
+	for p in parts:
 		prev[p] = _clip_start[p]
 	var t := minf(_clip_t, _clip_len)
 	var named := {}
@@ -145,6 +147,8 @@ func _sample_clip(out: Dictionary) -> Vector3:
 			if part == "root":
 				root_named = true
 				continue
+			if not prev.has(part):
+				continue  # a pose for another skeleton (e.g. humanoid hurt pose on the dragon)
 			named[part] = true
 			nxt[part] = (prev[part] as Quaternion).slerp(q(pose[part]), f)
 		var nroot: Vector3 = prev_root.lerp(pose.get("root", prev_root), f)
