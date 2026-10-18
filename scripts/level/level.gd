@@ -25,6 +25,9 @@ var _glass: Array[StaticBody3D] = []
 var _hints_shown := {}
 var _intro_cam: Camera3D
 var _hot_zones: Array[Area3D] = []
+var keys := 0
+var _gates: Array[StaticBody3D] = []
+var _gate_labels: Array[Label3D] = []
 var _sun: DirectionalLight3D
 
 
@@ -73,6 +76,28 @@ func extra_lights() -> void:
 
 func on_goal_open() -> void:
 	pass
+
+
+## Arenas whose victory drops a key; all keys open the gates (gate_<n> markers).
+func key_arenas() -> Array:
+	return []
+
+
+func key_look() -> String:
+	return "battery"
+
+
+func key_label() -> String:
+	return "Batterien"
+
+
+func key_color() -> Color:
+	return Color(1.0, 0.8, 0.25)
+
+
+## Shown after the intro: what this room asks of you.
+func objective_text() -> String:
+	return ""
 
 
 # ------------------------------------------------------------------ build
@@ -131,9 +156,16 @@ func _ready() -> void:
 				hud.set_stars(stars, stars_total))
 		elif name.begins_with("hazard_"):
 			_hazard(name, m)
+		elif name.begins_with("gate_"):
+			_gate(m)
+		elif name.begins_with("vista_"):
+			_vista(m)
 		elif waves.has(name):
 			_arena(name, m, waves[name])
 	hud.set_stars(0, stars_total)
+	if not key_arenas().is_empty():
+		hud.set_keys(0, key_arenas().size(), key_label())
+	_dust()
 	_make_goal(_markers["goal"])
 	Fx.prewarm.call_deferred()  # after the level finished entering the tree
 	Game.start_music()
@@ -159,6 +191,8 @@ func _arena(name: String, m: Node3D, waves: Array) -> void:
 	add_child(a)
 	if name == final_arena():
 		a.cleared.connect(_open_goal)
+	if name in key_arenas():
+		a.cleared.connect(_drop_key.bind(m.global_position + Vector3.UP * 1.6))
 
 
 func _checkpoint(at: Vector3) -> void:
@@ -278,6 +312,157 @@ func _process(_delta: float) -> void:
 			hud.toast(h[2], 6.0)
 
 
+# ------------------------------------------------------------------ keys and gates
+
+func _drop_key(at: Vector3) -> void:
+	var k := KeyItem.new()
+	k.look = key_look()
+	k.color = key_color()
+	k.position = at
+	add_child(k)
+	hud.toast("Eine %s ist erschienen - hol sie dir!" % key_label().trim_suffix("n").trim_suffix("e") if key_look() == "battery" else "Ein Teil ist erschienen - hol es dir!", 4.0)
+	k.collected.connect(func() -> void:
+		keys += 1
+		hud.set_keys(keys, key_arenas().size(), key_label())
+		for l in _gate_labels:
+			l.text = "%d / %d %s" % [keys, key_arenas().size(), key_label()]
+		if keys >= key_arenas().size():
+			_unlock_gates())
+
+
+## A force-field dome (four walls and a roof) that holds the final area shut
+## until every key is found. Stops figures, not the camera.
+func _gate(m: Node3D) -> void:
+	var size := m.global_basis.get_scale().abs()
+	var body := StaticBody3D.new()
+	body.collision_layer = Arena.BARRIER_LAYER
+	body.position = m.global_position
+	add_child(body)
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(1.0, 0.8, 0.25, 0.16)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.emission_enabled = true
+	mat.emission = Color(1.0, 0.7, 0.2)
+	mat.emission_energy_multiplier = 0.5
+	mat.rim_enabled = true
+	mat.rim = 1.0
+	var t := 0.5
+	var panels := [
+		[Vector3(0, size.y / 2.0, -size.z / 2.0), Vector3(size.x, size.y, t)],
+		[Vector3(0, size.y / 2.0, size.z / 2.0), Vector3(size.x, size.y, t)],
+		[Vector3(-size.x / 2.0, size.y / 2.0, 0), Vector3(t, size.y, size.z)],
+		[Vector3(size.x / 2.0, size.y / 2.0, 0), Vector3(t, size.y, size.z)],
+		[Vector3(0, size.y, 0), Vector3(size.x, t, size.z)],
+	]
+	for pnl in panels:
+		var shape := CollisionShape3D.new()
+		var box := BoxShape3D.new()
+		box.size = pnl[1]
+		shape.shape = box
+		shape.position = pnl[0]
+		body.add_child(shape)
+		var mesh := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = pnl[1]
+		mesh.mesh = bm
+		mesh.material_override = mat
+		mesh.position = pnl[0]
+		mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		body.add_child(mesh)
+	var label := Label3D.new()
+	label.text = "0 / %d %s" % [key_arenas().size(), key_label()]
+	label.font_size = 260
+	label.outline_size = 40
+	label.modulate = Color(1.0, 0.85, 0.35)
+	label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	label.position = Vector3(0, size.y + 2.5, 0)
+	body.add_child(label)
+	_gates.append(body)
+	_gate_labels.append(label)
+	body.set_meta("mat", mat)
+
+
+func _unlock_gates() -> void:
+	hud.toast("Alle %s gefunden! Das Kraftfeld fällt." % key_label(), 5.0)
+	Game.sfx("barrier", 4.0)
+	Game.shake(0.5)
+	for g in _gates:
+		g.collision_layer = 0
+		if camera:
+			camera.cinematic(g.global_position + Vector3.UP * 3.0, (g.global_position - player.global_position).normalized(), 2.4)
+		var mat: StandardMaterial3D = g.get_meta("mat")
+		var tw := g.create_tween()
+		tw.tween_property(mat, "albedo_color:a", 0.0, 1.5)
+		tw.parallel().tween_property(mat, "emission_energy_multiplier", 4.0, 0.3)
+		tw.tween_callback(g.queue_free)
+	_gate_labels.clear()
+
+
+## vista_<n>: stepping in here pulls the camera far back to show the room.
+func _vista(m: Node3D) -> void:
+	var area := Area3D.new()
+	area.collision_layer = 0
+	area.collision_mask = 2
+	var shape := CollisionShape3D.new()
+	var b := BoxShape3D.new()
+	b.size = m.global_basis.get_scale().abs()
+	shape.shape = b
+	shape.position = Vector3(0, b.size.y / 2.0, 0)
+	area.add_child(shape)
+	area.position = m.global_position
+	add_child(area)
+	area.body_entered.connect(func(body: Node3D) -> void:
+		if body == player:
+			camera.vista = true)
+	area.body_exited.connect(func(body: Node3D) -> void:
+		if body == player:
+			camera.vista = false)
+
+
+## Dust drifting in the air of the whole room: in a giant room, the motes are
+## what tell your eye how big it is.
+func _dust() -> void:
+	var bounds := AABB()
+	var first := true
+	for n in find_children("*", "MeshInstance3D", true, false):
+		var mi := n as MeshInstance3D
+		if mi.name == "sky":
+			continue
+		var bb := mi.global_transform * mi.get_aabb()
+		bounds = bb if first else bounds.merge(bb)
+		first = false
+	var p := GPUParticles3D.new()
+	p.amount = 700
+	p.lifetime = 14.0
+	p.preprocess = 14.0
+	p.visibility_aabb = AABB(-bounds.size / 2.0, bounds.size)
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = bounds.size / 2.0 * 0.95
+	pm.gravity = Vector3(0, -0.05, 0)
+	pm.initial_velocity_min = 0.05
+	pm.initial_velocity_max = 0.3
+	pm.direction = Vector3(1, 0.2, 0.3)
+	pm.spread = 180.0
+	pm.turbulence_enabled = true
+	pm.turbulence_noise_strength = 0.6
+	pm.scale_min = 0.6
+	pm.scale_max = 1.4
+	p.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(0.09, 0.09)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	mat.albedo_color = Color(1.0, 0.92, 0.75, 0.55)
+	q.material = mat
+	p.draw_pass_1 = q
+	p.position = bounds.get_center()
+	add_child(p)
+
 # ------------------------------------------------------------------ intro
 
 func _intro() -> void:
@@ -305,7 +490,7 @@ func _intro() -> void:
 	var tw := create_tween()
 	tw.tween_method(func(t: float) -> void:
 		var p := curve.sample_baked(t * curve.get_baked_length(), true)
-		_intro_cam.global_position = p
+ 		_intro_cam.global_position = p
 		var look := goal_pos.lerp(player.global_position + Vector3.UP * 1.2, clampf((t - 0.6) / 0.4, 0.0, 1.0))
 		if t < 0.15:
 			look = (player.global_position + Vector3.UP).lerp(goal_pos, t / 0.15)
@@ -329,6 +514,8 @@ func _end_intro() -> void:
 	camera.cam.make_current()
 	player.scripted = false
 	start_time = Time.get_ticks_msec()
+	if objective_text() != "":
+		hud.toast(objective_text(), 7.0)
 
 
 # ------------------------------------------------------------------ light
@@ -339,7 +526,7 @@ func _lights() -> void:
 	_sun.light_color = Color(1.0, 0.9, 0.75)
 	_sun.light_energy = 2.6
 	_sun.shadow_enabled = true
-	_sun.directional_shadow_max_distance = 120.0
+	_sun.directional_shadow_max_distance = 220.0
 	_sun.light_volumetric_fog_energy = 3.0
 	add_child(_sun)
 	_sun.look_at_from_position(line[0], line[1])
@@ -380,7 +567,7 @@ func _lights() -> void:
 	env.volumetric_fog_density = 0.006
 	env.volumetric_fog_albedo = Color(1.0, 0.95, 0.85)
 	env.volumetric_fog_anisotropy = 0.6
-	env.volumetric_fog_length = 90.0
+	env.volumetric_fog_length = 180.0
 	env.adjustment_enabled = true
 	env.adjustment_saturation = 1.12
 	env.adjustment_contrast = 1.05

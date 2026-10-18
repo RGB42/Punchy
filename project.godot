@@ -1,5 +1,10 @@
 ; Engine configuration file.
-; Punchy — toy action figures come alive. Godot 4.7, Forward+, Jolt.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -21,7 +26,6 @@ window/size/viewport_width=1600
 window/size/viewport_height=900
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/vsync/vsync_mode=1
 
 [layer_names]
 
@@ -34,16 +38,14 @@ window/vsync/vsync_mode=1
 
 [physics]
 
+common/physics_ticks_per_second=120
 3d/physics_engine="Jolt Physics"
 3d/default_gravity=24.0
-common/physics_ticks_per_second=120
 
 [rendering]
 
-anti_aliasing/quality/msaa_3d=2
-anti_aliasing/quality/screen_space_aa=1
-anti_aliasing/quality/use_debanding=true
-lights_and_shadows/directional_shadow/size=4096
 lights_and_shadows/directional_shadow/soft_shadow_filter_quality=3
 lights_and_shadows/positional_shadow/soft_shadow_filter_quality=3
-environment/ssao/quality=2
+anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/use_debanding=true
+anti_aliasing/quality/screen_space_aa=1

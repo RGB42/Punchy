@@ -18,7 +18,7 @@ const ICE_LIFETIME := 4.0  # Frost's air platform
 const GRIP_TIME := 3.0  # Stone: seconds on any wall
 const UPDRAFT_TIME := 3.0  # Gale: seconds of rising glide
 const UPDRAFT_RISE := 3.5
-const VINE_RANGE := 22.0  # Venom: aim-anywhere grapple
+const VINE_RANGE := 18.0  # Venom: aim-anywhere grapple
 const PHASE_HEIGHT := 5.0  # Shade: teleport up through anything
 const VINE_HOLD := 2.0  # Venom: seconds the vine holds you on a wall
 
@@ -46,13 +46,14 @@ const ROLL_TIME := 0.32
 const GLIDE_FALL := 2.5
 const GLIDE_SPEED := 11.0
 const FLIP_TIME := 0.42
-const CLIMB_SPEED := 4.5
+const CLIMB_SPEED := 6.0
 const CLIMB_UP_TIME := 0.38
 const SHIMMY_SPEED := 3.0
 const HANG_DROP := 2.05  # ledge height above the feet while hanging
-const GRAPPLE_RANGE := 18.0
+const GRAPPLE_RANGE := 26.0
 const PULL_SPEED := 32.0
-const SWING_LEN := 9.0
+const SWING_LEN := 9.0  # shortest rope a swing reels in to
+const SWING_LEN_MAX := 14.0  # longest: far hooks give long, sweeping arcs
 const SWING_PUMP := 16.0
 const STRIDE := 2.8  # units travelled per run cycle
 
@@ -101,6 +102,7 @@ var _ignore_climb := 0.0
 var _anchor := Vector3.ZERO
 var _pull_dir := Vector3.ZERO
 var _rope_len := 0.0
+var _rope_target := 0.0
 var _rope: MeshInstance3D
 var _run_phase := 0.0
 var _climb_phase := 0.0
@@ -898,6 +900,7 @@ func _start_grapple() -> void:
 		set_state(State.GRAPPLE_PULL)
 	else:
 		_rope_len = clampf((_anchor - (global_position + Vector3.UP * 2.0)).length(), 4.0, GRAPPLE_RANGE)
+		_rope_target = clampf(_rope_len, SWING_LEN, SWING_LEN_MAX)
 		set_state(State.GRAPPLE_SWING)
 	_update_rope()
 
@@ -928,7 +931,7 @@ func _tick_pull() -> void:
 func _tick_swing(delta: float) -> void:
 	velocity.y -= GRAVITY_UP * delta
 	velocity += wish_dir() * SWING_PUMP * delta
-	_rope_len = move_toward(_rope_len, SWING_LEN, 14.0 * delta)
+	_rope_len = move_toward(_rope_len, _rope_target, 14.0 * delta)
 	var hand := global_position + Vector3.UP * 2.0
 	var nxt := hand + velocity * delta
 	var d := nxt - _anchor

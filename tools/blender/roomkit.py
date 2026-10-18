@@ -24,6 +24,11 @@ from mathutils import Matrix, Vector
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 C = Matrix(((1, 0, 0), (0, 0, -1), (0, 1, 0)))
 
+# Room builders author in "real size x 12" units (a 15 cm figure). The export
+# scales the whole room by ROOM_SCALE so the figure is far smaller than the
+# furniture: a chair seat is out of double-jump reach, a room takes minutes to cross.
+ROOM_SCALE = 1.6
+
 MATS = {
     "parquet": (0.62, 0.42, 0.25, 0.55), "wall": (0.86, 0.83, 0.74, 0.9), "ceiling": (0.95, 0.95, 0.93, 0.9),
     "baseboard": (0.95, 0.95, 0.93, 0.5), "wood_light": (0.78, 0.6, 0.4, 0.5), "wood_white": (0.92, 0.91, 0.88, 0.4),
@@ -162,11 +167,20 @@ class Room:
                 o.location = p
 
 
-def finish(r, out, pivots=None):
-    """Join groups, sanity-check the markers, export the glb."""
+def finish(r, out, pivots=None, scale=ROOM_SCALE):
+    """Join groups, scale the room up, sanity-check the markers, export the glb."""
     out = out if os.path.isabs(out) else os.path.join(ROOT, out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     r.join_groups(pivots or {})
+    # bake the scale into meshes and positions: physics in Godot wants unscaled bodies
+    grow = Matrix.Scale(scale, 4)
+    for o in bpy.data.objects:
+        if o.type == "MESH":
+            o.data.transform(grow)
+        o.location = o.location * scale
+        if o.type == "EMPTY":
+            o.scale = o.scale * scale
+    bpy.context.view_layer.update()
     cols = [o for o in bpy.data.objects if o.name.endswith("-convcolonly")]
     marks = [o for o in bpy.data.objects if o.type == "EMPTY"]
     tris = sum(sum(len(f.vertices) - 2 for f in o.data.polygons) for o in bpy.data.objects if o.type == "MESH" and o not in cols)
